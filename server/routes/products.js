@@ -37,4 +37,29 @@ router.post('/', async (req, res) => {
   }
 });
 
+// PUT /api/products/:id - update product
+router.put('/:id', async (req, res) => {
+  try {
+    const update = { ...req.body, fechaModificacion: new Date() };
+    const updated = await Product.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true });
+    if (!updated) return res.status(404).json({ error: 'Product not found' });
+    res.json(updated);
+  } catch (err) {
+    console.error('Product update error:', err);
+    res.status(400).json({ error: 'Invalid update' });
+  }
+});
+
+// DELETE /api/products/:id - delete product
+router.delete('/:id', async (req, res) => {
+  try {
+    const deleted = await Product.findByIdAndDelete(req.params.id);
+    if (!deleted) return res.status(404).json({ error: 'Product not found' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Product delete error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 module.exports = router;

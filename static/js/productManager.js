@@ -1,16 +1,34 @@
 // Sistema de gestión de productos con localStorage
 class ProductManager {
     constructor() {
-        this.products = this.loadProducts();
-        this.initializeDefaultProducts();
+        // Start with empty list and prefer loading from server (Atlas).
+        // If server fetch fails, fallback to localStorage or defaults.
+        this.products = [];
 
-        // If API is available, try to load products from server and overwrite local list
         try {
             if (window.api && typeof window.api.getProducts === 'function') {
-                this.fetchProductsFromApi();
+                // Attempt to fetch from API. If it fails, fallback handled in catch below.
+                this.fetchProductsFromApi().catch(err => {
+                    console.warn('No se pudo cargar productos desde API, usando copia local o seed:', err && err.message ? err.message : err);
+                    const existing = this.loadProducts();
+                    if (!existing || existing.length === 0) {
+                        this.initializeDefaultProducts();
+                    } else {
+                        this.products = existing;
+                    }
+                });
+                return;
             }
         } catch (err) {
-            console.warn('API products fetch skipped:', err);
+            console.warn('API products fetch skipped due to error:', err);
+        }
+
+        // If no API available, use local products or seed defaults
+        const existing = this.loadProducts();
+        if (!existing || existing.length === 0) {
+            this.initializeDefaultProducts();
+        } else {
+            this.products = existing;
         }
     }
 
@@ -173,37 +191,45 @@ class ProductManager {
     // Sincronizar con productos del admin
     syncWithAdminProducts() {
         const adminProducts = localStorage.getItem('productos');
-        if (adminProducts) {
-            try {
-                const adminProdArray = JSON.parse(adminProducts);
-                // Convertir formato de admin a formato de productManager
-                const convertedProducts = adminProdArray.map(adminProd => {
-                    // Buscar si ya existe este producto para preservar su stock actual
-                    const existingProduct = this.products.find(p => p.id.toString() === adminProd.id.toString());
-                    
-                    return {
-                        id: adminProd.id,  // Usar el ID original del admin
-                        nombre: adminProd.nombre,
-                        precio: adminProd.precio,
-                        capacidad: adminProd.descripcion ? adminProd.descripcion.substring(0, 50) + '...' : 'N/A',
-                        imagen: adminProd.imagen || './static/img/producto.png',
-                        descripcion: adminProd.descripcion || adminProd.nombre,
-                        categoria: adminProd.categoria || 'electrodomesticos',
-                        stock: adminProd.stock || (existingProduct ? existingProduct.stock : 10), // Usar stock del admin o preservar existente
-                        fechaCreacion: adminProd.fechaCreacion || new Date().toISOString(),
-                        fechaModificacion: adminProd.fechaModificacion || existingProduct?.fechaModificacion,
-                        isAdminProduct: true
-                    };
-                });
+        if (!adminProducts) return;
+        try {
+            const adminProdArray = JSON.parse(adminProducts);
+            // Convert admin format and merge into existing products without overwriting server-sourced items
+            adminProdArray.forEach(adminProd => {
+                const converted = {
+                    id: adminProd.id,
+                    nombre: adminProd.nombre,
+                    precio: adminProd.precio,
+                    capacidad: adminProd.descripcion ? adminProd.descripcion.substring(0, 50) + '...' : 'N/A',
+                    imagen: adminProd.imagen || './static/img/producto.png',
+                    descripcion: adminProd.descripcion || adminProd.nombre,
+                    categoria: adminProd.categoria || 'electrodomesticos',
+                    stock: adminProd.stock || 10,
+                    fechaCreacion: adminProd.fechaCreacion || new Date().toISOString(),
+                    fechaModificacion: adminProd.fechaModificacion || new Date().toISOString(),
+                    isAdminProduct: true
+                };
 
-                // Reemplazar todos los productos con los del admin
-                this.products = convertedProducts;
-                this.saveProducts();
-                
-                console.log('✅ Productos sincronizados con admin:', convertedProducts.length);
-            } catch (error) {
-                console.error('Error sincronizando productos admin:', error);
-            }
+                // Try to match by id first, otherwise try to match by name (case-insensitive) to avoid duplicating server products
+                let idx = this.products.findIndex(p => p.id && p.id.toString() === converted.id.toString());
+                if (idx === -1) {
+                    const nameNormalized = (converted.nombre || '').toString().trim().toLowerCase();
+                    idx = this.products.findIndex(p => (p.nombre || '').toString().trim().toLowerCase() === nameNormalized);
+                }
+
+                if (idx !== -1) {
+                    // Merge admin fields but keep server fields intact where present
+                    this.products[idx] = { ...this.products[idx], ...converted };
+                } else {
+                    // Add admin-only product
+                    this.products.push(converted);
+                }
+            });
+
+            this.saveProducts();
+            console.log('✅ Productos del admin integrados (merge) con la lista actual:', this.products.length);
+        } catch (error) {
+            console.error('Error sincronizando productos admin:', error);
         }
     }
 
@@ -583,6 +609,6 @@ class MediaHandler {
     }
 }
 
-// Inicializar gestores
-const productManager = new ProductManager();
+// Inicializar gestores (instanciación deferida a main.js to ensure window.api is available)
+let productManager;
 const mediaHandler = new MediaHandler();

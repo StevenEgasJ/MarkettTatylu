@@ -1,4 +1,29 @@
-document.addEventListener("DOMContentLoaded", function() {
+// DEBUG: monitor changes to localStorage 'carrito' to trace unexpected clears
+(function(){
+    try {
+        const _setItem = Storage.prototype.setItem;
+        Storage.prototype.setItem = function(key, value) {
+            if (key === 'carrito') {
+                try {
+                    const parsed = JSON.parse(value || 'null');
+                    if (!parsed || (Array.isArray(parsed) && parsed.length === 0)) {
+                        console.warn('DEBUG: carrito being set to empty or null', { key, value });
+                        console.trace();
+                    } else {
+                        console.log('DEBUG: carrito updated', { key, length: Array.isArray(parsed)? parsed.length : null });
+                    }
+                } catch (e) {
+                    console.warn('DEBUG: carrito set with non-JSON value', value);
+                }
+            }
+            return _setItem.apply(this, arguments);
+        };
+    } catch (err) {
+        console.warn('Could not install carrito debug wrapper', err);
+    }
+})();
+
+document.addEventListener("DOMContentLoaded", async function() {
     // Inicializar sistemas principales
     actualizarCarritoUI();
     cargarCarrito();
@@ -7,13 +32,30 @@ document.addEventListener("DOMContentLoaded", function() {
     // Asegurar que productManager existe y está inicializado
     if (typeof productManager === 'undefined') {
         console.log('📦 Inicializando productManager...');
-        window.productManager = new ProductManager();
+        // Assign to the declared global variable AND mirror to window so
+        // other scripts referencing either `productManager` or `window.productManager`
+        // will work without race conditions.
+        productManager = new ProductManager();
+        window.productManager = productManager;
     }
-    
-    // Sincronizar productos con admin primero si existe productManager
-    if (typeof productManager !== 'undefined') {
-        productManager.syncWithAdminProducts();
-        console.log('🔄 Productos sincronizados con admin al inicio');
+
+    // Preferir cargar productos desde la API (Atlas) antes de renderizar
+    if (typeof productManager !== 'undefined' && window.api && typeof productManager.fetchProductsFromApi === 'function') {
+        try {
+            await productManager.fetchProductsFromApi();
+            console.log('🔄 Productos cargados desde API en init');
+        } catch (err) {
+            console.warn('No se pudieron cargar productos desde API en init:', err && err.message ? err.message : err);
+            // fallback: merge admin/local
+            productManager.syncWithAdminProducts();
+            console.log('🔄 Productos sincronizados con admin al inicio (fallback)');
+        }
+    } else {
+        // No hay API disponible, sincronizar con admin/local
+        if (typeof productManager !== 'undefined') {
+            productManager.syncWithAdminProducts();
+            console.log('🔄 Productos sincronizados con admin al inicio (no API)');
+        }
     }
     
     // Cargar productos si hay un contenedor (después de sincronizar)
@@ -735,29 +777,40 @@ function logout() {
 // Función para refrescar productos en la página
 function refreshProductDisplay() {
     console.log('🔄 Refrescando display de productos...');
-    
-    if (typeof productManager !== 'undefined') {
-        // Forzar sincronización con productos del admin
-        productManager.syncWithAdminProducts();
-        // Forzar recarga de productos desde localStorage
-        productManager.loadProducts();
-        console.log('📦 Productos sincronizados y recargados desde localStorage');
+
+    // Defensive: only proceed if productManager is initialized
+    if (typeof productManager === 'undefined') {
+        console.warn('refreshProductDisplay: productManager no disponible');
+        return;
     }
-    
-    if (document.getElementById('products-container')) {
-        loadProductsFromManager();
-        console.log('✅ Productos refrescados en la interfaz');
+
+    // Prefer a fresh fetch from API when available, otherwise fall back to local merge + render
+    if (window.api && typeof productManager.fetchProductsFromApi === 'function') {
+        productManager.fetchProductsFromApi()
+            .then(() => {
+                console.log('� Productos actualizados desde API (refresh)');
+                loadProductsFromManager();
+            })
+            .catch(err => {
+                console.warn('No se pudo actualizar productos desde API (refresh):', err && err.message ? err.message : err);
+                // Merge admin/local and render
+                productManager.syncWithAdminProducts();
+                loadProductsFromManager();
+            });
     } else {
-        console.log('ℹ️ No hay contenedor de productos en esta página');
+        productManager.syncWithAdminProducts();
+        loadProductsFromManager();
+        console.log('🔄 Productos refrescados desde local/admin (no API)');
     }
 }
 
 // Función para refrescar productos automáticamente
+// Auto-refresh: periodically refresh product display (safe, non-recursive)
 function autoRefreshProducts() {
     const productContainer = document.getElementById('products-container');
     if (productContainer && typeof productManager !== 'undefined') {
         console.log('🔄 Auto-recargando productos...');
-        loadProductsFromManager();
+        refreshProductDisplay();
     }
 }
 
@@ -769,10 +822,37 @@ window.refreshProducts = function() {
     loadProductsFromManager();
 };
 
-// Función global para refrescar productos
-window.refreshProductDisplay = function() {
-    refreshProductDisplay();
+// Forzar recarga desde el servidor (Atlas) y reemplazar cache local
+window.forceFetchServerProducts = async function() {
+    if (typeof productManager === 'undefined' || !window.api || typeof productManager.fetchProductsFromApi !== 'function') {
+        console.warn('forceFetchServerProducts: productManager o api no disponibles');
+        return;
+    }
+
+    try {
+        console.log('🔁 Forzando fetch de productos desde el servidor (Atlas)...');
+        // Clear local cache to ensure we don't read stale defaults
+        localStorage.removeItem('productos');
+        await productManager.fetchProductsFromApi();
+        // Ensure admin merge/sync then render
+        productManager.syncWithAdminProducts();
+        loadProductsFromManager();
+        console.log('✅ Productos actualizados desde el servidor y cache reemplazada');
+    } catch (err) {
+        console.error('❌ forceFetchServerProducts error:', err && err.message ? err.message : err);
+        // fallback to merge + render
+        productManager.syncWithAdminProducts();
+        loadProductsFromManager();
+    }
 };
+
+// Función global para refrescar productos
+// Bind the existing function directly to avoid creating a wrapper that
+// resolves to the same global name and causes recursion (Maximum call stack).
+// The top-level function declaration `refreshProductDisplay` already creates
+// a global symbol, but assigning a wrapper that calls the global name can
+// accidentally call the wrapper itself. Use direct reference instead.
+window.refreshProductDisplay = refreshProductDisplay;
 
 // Evento para detectar cuando se vuelve a la página de productos después de una compra
 document.addEventListener('visibilitychange', function() {

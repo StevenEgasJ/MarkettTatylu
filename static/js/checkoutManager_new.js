@@ -442,108 +442,7 @@ async function getInvoiceDataWithLocation(userData, locationData) {
                     </div>
                 </div>
 
-                <script>
-                window.togglePaymentFields = function() {
-                    const metodoPago = document.getElementById('metodoPago').value;
-                    
-                    // Guardar datos actuales antes de ocultar campos
-                    const currentData = {
-                        // Datos de tarjeta
-                        numeroTarjeta: document.getElementById('numeroTarjeta')?.value || '',
-                        fechaVencimiento: document.getElementById('fechaVencimiento')?.value || '',
-                        cvv: document.getElementById('cvv')?.value || '',
-                        nombreTarjeta: document.getElementById('nombreTarjeta')?.value || '',
-                        // Datos de PayPal
-                        emailPaypal: document.getElementById('emailPaypal')?.value || '',
-                        // Datos de transferencia
-                        banco: document.getElementById('banco')?.value || '',
-                        numeroCuenta: document.getElementById('numeroCuenta')?.value || '',
-                        titularCuenta: document.getElementById('titularCuenta')?.value || ''
-                    };
-                    
-                    // Ocultar todos los campos
-                    document.getElementById('tarjeta-fields').style.display = 'none';
-                    document.getElementById('paypal-fields').style.display = 'none';
-                    document.getElementById('transferencia-fields').style.display = 'none';
-                    
-                    // Mostrar campos del método seleccionado
-                    if (metodoPago === 'tarjeta') {
-                        document.getElementById('tarjeta-fields').style.display = 'block';
-                        // Restaurar datos de tarjeta
-                        document.getElementById('numeroTarjeta').value = currentData.numeroTarjeta;
-                        document.getElementById('fechaVencimiento').value = currentData.fechaVencimiento;
-                        document.getElementById('cvv').value = currentData.cvv;
-                        document.getElementById('nombreTarjeta').value = currentData.nombreTarjeta;
-                        
-                        // Focus en el primer campo vacío
-                        setTimeout(() => {
-                            if (!currentData.numeroTarjeta) {
-                                document.getElementById('numeroTarjeta').focus();
-                            }
-                        }, 100);
-                        
-                    } else if (metodoPago === 'paypal') {
-                        document.getElementById('paypal-fields').style.display = 'block';
-                        // Restaurar datos de PayPal
-                        document.getElementById('emailPaypal').value = currentData.emailPaypal;
-                        
-                        // Focus en el campo de email
-                        setTimeout(() => {
-                            if (!currentData.emailPaypal) {
-                                document.getElementById('emailPaypal').focus();
-                            }
-                        }, 100);
-                        
-                    } else if (metodoPago === 'transferencia') {
-                        document.getElementById('transferencia-fields').style.display = 'block';
-                        // Restaurar datos de transferencia
-                        document.getElementById('banco').value = currentData.banco;
-                        document.getElementById('numeroCuenta').value = currentData.numeroCuenta;
-                        document.getElementById('titularCuenta').value = currentData.titularCuenta;
-                        
-                        // Focus en el primer campo vacío
-                        setTimeout(() => {
-                            if (!currentData.banco) {
-                                document.getElementById('banco').focus();
-                            } else if (!currentData.numeroCuenta) {
-                                document.getElementById('numeroCuenta').focus();
-                            } else if (!currentData.titularCuenta) {
-                                document.getElementById('titularCuenta').focus();
-                            }
-                        }, 100);
-                    }
-                };
-
-                // Formato automático para número de tarjeta
-                document.getElementById('numeroTarjeta')?.addEventListener('input', function(e) {
-                    let value = e.target.value.replace(/\s/g, '').replace(/[^0-9]/gi, '');
-                    let formattedValue = value.match(/.{1,4}/g)?.join(' ') || value;
-                    if (formattedValue.length <= 19) {
-                        e.target.value = formattedValue;
-                    }
-                });
-
-                // Formato automático para fecha de vencimiento
-                document.getElementById('fechaVencimiento')?.addEventListener('input', function(e) {
-                    let value = e.target.value.replace(/[^0-9]/g, '');
-                    if (value.length >= 2) {
-                        value = value.substring(0,2) + '/' + value.substring(2,4);
-                    }
-                    e.target.value = value;
-                });
-
-                // Validación en tiempo real para CVV
-                document.getElementById('cvv')?.addEventListener('input', function(e) {
-                    let value = e.target.value.replace(/[^0-9]/g, '');
-                    e.target.value = value;
-                });
-
-                // Validación en tiempo real para número de cuenta bancaria
-                document.getElementById('numeroCuenta')?.addEventListener('input', function(e) {
-                    let value = e.target.value.replace(/[^0-9]/g, '');
-                    e.target.value = value;
-                });
-                </script>
+                <!-- payment fields script removed from inline Swal content - using global handlers defined in the main file -->
             `,
             focusConfirm: false,
             showCancelButton: true,
@@ -553,6 +452,13 @@ async function getInvoiceDataWithLocation(userData, locationData) {
             width: '700px',
             didOpen: () => {
                 // Activar campos dinámicos después del render
+                // Setup listeners first (no-op if elements missing), then toggle visibilities
+                try {
+                    window.setupPaymentFieldListeners?.();
+                } catch (err) {
+                    console.warn('setupPaymentFieldListeners error on didOpen:', err);
+                }
+
                 if (currentData.metodoPago) {
                     setTimeout(() => {
                         window.togglePaymentFields();
@@ -1130,6 +1036,94 @@ class CheckoutManager {
 // Instanciar el checkout manager
 const checkoutManager = new CheckoutManager();
 
+// Compatibility helper: expose togglePaymentFields and setup listeners globally so Swal-generated content can use them
+window.togglePaymentFields = function() {
+    try {
+        const metodoPagoEl = document.getElementById('metodoPago');
+        if (!metodoPagoEl) return;
+        const metodoPago = metodoPagoEl.value;
+
+        const tarjetaFields = document.getElementById('tarjeta-fields');
+        const paypalFields = document.getElementById('paypal-fields');
+        const transferenciaFields = document.getElementById('transferencia-fields');
+
+        if (tarjetaFields) tarjetaFields.style.display = 'none';
+        if (paypalFields) paypalFields.style.display = 'none';
+        if (transferenciaFields) transferenciaFields.style.display = 'none';
+
+        if (metodoPago === 'tarjeta' && tarjetaFields) tarjetaFields.style.display = 'block';
+        if (metodoPago === 'paypal' && paypalFields) paypalFields.style.display = 'block';
+        if (metodoPago === 'transferencia' && transferenciaFields) transferenciaFields.style.display = 'block';
+    } catch (err) {
+        console.warn('togglePaymentFields error:', err);
+    }
+};
+
+window.setupPaymentFieldListeners = function() {
+    try {
+        const numeroTarjeta = document.getElementById('numeroTarjeta');
+        const fechaVencimiento = document.getElementById('fechaVencimiento');
+        const cvv = document.getElementById('cvv');
+        const numeroCuenta = document.getElementById('numeroCuenta');
+
+        numeroTarjeta?.addEventListener('input', function(e) {
+            let value = e.target.value.replace(/\s/g, '').replace(/[^0-9]/gi, '');
+            let formattedValue = value.match(/.{1,4}/g)?.join(' ') || value;
+            if (formattedValue.length <= 19) {
+                e.target.value = formattedValue;
+            }
+        });
+
+        fechaVencimiento?.addEventListener('input', function(e) {
+            let value = e.target.value.replace(/[^0-9]/g, '');
+            if (value.length >= 2) {
+                value = value.substring(0,2) + '/' + value.substring(2,4);
+            }
+            e.target.value = value;
+        });
+
+        cvv?.addEventListener('input', function(e) {
+            let value = e.target.value.replace(/[^0-9]/g, '');
+            e.target.value = value;
+        });
+
+        numeroCuenta?.addEventListener('input', function(e) {
+            let value = e.target.value.replace(/[^0-9]/g, '');
+            e.target.value = value;
+        });
+    } catch (err) {
+        console.warn('setupPaymentFieldListeners error:', err);
+    }
+};
+
+// Backwards-compatibility: provide getUserOrders and showInvoice expected by compras.html
+checkoutManager.getUserOrders = function() {
+    try {
+        const userEmail = localStorage.getItem('userEmail');
+        if (!userEmail) return [];
+
+        const userOrders = JSON.parse(localStorage.getItem(`orders_${userEmail}`) || '[]');
+        const comprasHistorial = JSON.parse(localStorage.getItem('comprasHistorial') || '[]').filter(o => o.cliente && o.cliente.email === userEmail);
+        const adminPedidos = JSON.parse(localStorage.getItem('pedidos') || '[]').filter(o => o.cliente && o.cliente.email === userEmail);
+
+        const combined = [...userOrders, ...comprasHistorial, ...adminPedidos];
+        const unique = combined.filter((order, index, self) => index === self.findIndex(o => (o.id || o.numeroOrden) === (order.id || order.numeroOrden)));
+        return unique;
+    } catch (err) {
+        console.error('getUserOrders error:', err);
+        return [];
+    }
+};
+
+checkoutManager.showInvoice = async function(order) {
+    // reuse existing showFinalInvoice for compatibility
+    try {
+        await showFinalInvoice(order);
+    } catch (err) {
+        console.error('showInvoice error:', err);
+    }
+};
+
 // Función global para limpiar ubicación guardada
 window.clearSavedLocation = function() {
     Swal.fire({
@@ -1249,8 +1243,31 @@ window.enviarCarrito = async function() {
         let serverOrderId = null;
         try {
             if (window.api && typeof window.api.checkout === 'function') {
+                // Resolve item ids to server-side product ids when possible (handle legacy numeric/local ids)
+                const resolvedItems = carrito.map(item => {
+                    let resolvedId = item.id;
+                    try {
+                        // If productManager knows this id, prefer its canonical id
+                        if (typeof productManager !== 'undefined') {
+                            const pmProduct = productManager.getProductById(item.id);
+                            if (pmProduct && pmProduct.id) {
+                                resolvedId = pmProduct.id;
+                            } else {
+                                // Try to find by name (fallback when client stored numeric legacy ids)
+                                const byName = productManager.getAllProducts().find(p => p.nombre === item.nombre || p.nombre === item.nombre.trim());
+                                if (byName && byName.id) {
+                                    resolvedId = byName.id;
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('Could not resolve product id for', item, e);
+                    }
+                    return { id: resolvedId, cantidad: item.cantidad, originalId: item.id };
+                });
+
                 const payload = {
-                    items: carrito.map(item => ({ id: item.id, cantidad: item.cantidad })),
+                    items: resolvedItems,
                     resumen: totals,
                     shipping: {
                         direccion: invoiceData.direccion || invoiceData.direccion || locationData.address.full,
@@ -1260,41 +1277,99 @@ window.enviarCarrito = async function() {
                     }
                 };
 
+                // Debugging: show payload and token presence
+                try {
+                    console.log('🔎 Checkout payload:', payload);
+                    console.log('🔐 Token present:', !!localStorage.getItem('token'));
+                } catch (e) { console.warn('Could not log checkout debug info', e); }
+
                 const res = await window.api.checkout(payload);
+                console.log('📨 /api/checkout response:', res);
                 if (res && res.orderId) {
                     serverOrderId = res.orderId;
                     order.id = res.orderId;
                     console.log('✅ Checkout persisted on server, orderId=', serverOrderId);
+                } else {
+                    // Server responded but without orderId
+                    console.warn('⚠️ Server checkout did not return orderId:', res);
+                    await Swal.fire({
+                        title: 'Error al procesar en el servidor',
+                        html: `<div>El servidor respondió pero no devolvió un ID de orden.<br><pre style="text-align:left; white-space:pre-wrap;">${JSON.stringify(res)}</pre></div>`,
+                        icon: 'error'
+                    });
                 }
             }
         } catch (err) {
             console.error('API checkout failed, will fallback to local save:', err);
+            // Try to extract JSON message if available
+            let message = err && err.message ? err.message : String(err);
+            try {
+                const parsed = JSON.parse(message);
+                if (parsed && parsed.error) message = parsed.error;
+            } catch (e) {
+                // not JSON
+            }
+
+            await Swal.fire({
+                title: 'Error comunicándose con el servidor',
+                html: `<div>Ocurrió un error al intentar guardar la orden en el servidor:<br><pre style="text-align:left; white-space:pre-wrap;">${escapeHtml(message)}</pre></div><div class="mt-2">La orden será guardada localmente como respaldo.</div>`,
+                icon: 'error',
+                confirmButtonText: 'OK'
+            });
         }
 
-        // Guardar historial local (si el servidor respondió, usar ese ID)
-        saveOrderToHistory(order);
+        // Guardar historial local: preferir guardado en servidor
+        if (serverOrderId) {
+            // Si el servidor procesó la orden correctamente, usar ese ID y marcar como sincronizada
+            order.id = serverOrderId;
+            order.syncedWithServer = true;
+            saveOrderToHistory(order);
 
-        // Si el checkout fue exitoso en servidor, intentar refrescar productos desde API para actualizar stock
-        try {
-            if (serverOrderId && window.api && typeof window.api.getProducts === 'function' && typeof productManager.fetchProductsFromApi === 'function') {
-                await productManager.fetchProductsFromApi();
-                console.log('🔄 Productos refrescados desde servidor tras checkout');
-            } else {
-                // Fallback local stock update
+            // Si el checkout fue exitoso en servidor, intentar refrescar productos desde API para actualizar stock
+            try {
+                if (window.api && typeof window.api.getProducts === 'function' && typeof productManager?.fetchProductsFromApi === 'function') {
+                    await productManager.fetchProductsFromApi();
+                    console.log('🔄 Productos refrescados desde servidor tras checkout');
+                } else {
+                    // Fallback local stock update
+                    updateProductStock(carrito);
+                }
+            } catch (err) {
+                console.warn('No se pudo refrescar productos desde API, actualizando localmente:', err);
                 updateProductStock(carrito);
             }
-        } catch (err) {
-            console.warn('No se pudo refrescar productos desde API, actualizando localmente:', err);
-            updateProductStock(carrito);
-        }
 
-        // ✅ PASO 9: Mostrar factura final
-        await showFinalInvoice(order);
+            // ✅ PASO 9: Mostrar factura final
+            await showFinalInvoice(order);
 
-        // ✅ PASO 10: Limpiar carrito
-        localStorage.removeItem("carrito");
-        if (typeof actualizarCarritoUI === 'function') {
-            actualizarCarritoUI();
+            // ✅ PASO 10: Limpiar carrito
+            try {
+                // If server processed the order, also explicitly clear server-side cart for consistency
+                if (window.api && typeof window.api.updateCart === 'function') {
+                    await window.api.updateCart([]);
+                    console.log('✅ Server-side cart cleared via API');
+                }
+            } catch (err) {
+                console.warn('Could not clear server-side cart after checkout:', err);
+            }
+
+            // Remove local cart only after attempts to clear server cart (keeps client/server consistent)
+            localStorage.removeItem("carrito");
+            if (typeof actualizarCarritoUI === 'function') {
+                actualizarCarritoUI();
+            }
+        } else {
+            // El servidor no respondió con un orderId o la petición falló.
+            // No borrar el carrito local para evitar pérdida de datos.
+            order.syncedWithServer = false;
+            saveOrderToHistory(order);
+
+            await Swal.fire({
+                title: 'Orden guardada localmente',
+                html: 'No se pudo guardar la orden en el servidor. Tu pedido fue guardado localmente y no se borró el carrito. Intenta nuevamente más tarde o contacta soporte.',
+                icon: 'warning',
+                confirmButtonText: 'OK'
+            });
         }
 
     } catch (error) {

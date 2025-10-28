@@ -164,6 +164,7 @@
     <!-- Scripts originales -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="./static/js/apiClient.js"></script>
     <script src="./static/js/productManager.js"></script>
     <script src="./static/js/checkoutManager_new.js"></script>
     <script src="./static/js/theme-toggle.js"></script>
@@ -642,16 +643,25 @@
                     
                     if (itemsSospechosos) {
                         console.log('⚠️ PROBLEMA DETECTADO: Se encontraron items sospechosos en el carrito');
-                        
-                        // Limpiar automáticamente el carrito corrupto
-                        console.log('🧹 Limpiando carrito corrupto automáticamente...');
-                        localStorage.removeItem('carrito');
-                        
-                        // Recargar la página para mostrar el carrito limpio
-                        setTimeout(() => {
-                            location.reload();
-                        }, 1000);
-                        
+                        // No limpiar automáticamente: mostrar advertencia y pedir confirmación al usuario
+                        (async function(){
+                            const choice = await Swal.fire({
+                                title: 'Elementos sospechosos en el carrito',
+                                html: 'Se detectaron productos que parecen de prueba o potencialmente corruptos. ¿Deseas limpiar el carrito ahora?',
+                                icon: 'warning',
+                                showCancelButton: true,
+                                confirmButtonText: 'Limpiar carrito',
+                                cancelButtonText: 'Mantener carrito'
+                            });
+
+                            if (choice.isConfirmed) {
+                                console.log('🧹 Usuario confirmó limpieza del carrito (diagnóstico)');
+                                localStorage.removeItem('carrito');
+                                setTimeout(() => location.reload(), 500);
+                            } else {
+                                console.log('ℹ️ Usuario decidió conservar el carrito tras diagnóstico');
+                            }
+                        })();
                         return;
                     }
                 }

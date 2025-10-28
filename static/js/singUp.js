@@ -56,30 +56,39 @@ document.addEventListener("DOMContentLoaded", function() {
                 return;
             }
 
-            // Try registering via API if available
+            // Check API availability: if reachable, require server persistence to Atlas
+            let apiAvailable = false;
             try {
-                if (window.api && typeof window.api.register === 'function') {
-                    const payload = {
-                        nombre: userData.nombre,
-                        apellido: userData.apellido,
-                        email: userData.email,
-                        password: userData.password,
-                        cedula: userData.cedula,
-                        telefono: userData.telefono,
-                        photo: userData.photo || null
-                    };
+                if (window.api && typeof window.api.ping === 'function') {
+                    apiAvailable = await window.api.ping();
+                }
+            } catch (err) {
+                apiAvailable = false;
+            }
 
-                    const res = await window.api.register(payload);
-                    // API returns { token, user }
-                    if (res && res.token) {
-                        localStorage.setItem('token', res.token);
-                        localStorage.setItem('userLoggedIn', 'true');
-                        localStorage.setItem('userEmail', res.user.email);
-                        localStorage.setItem('userNombre', res.user.nombre || userData.nombre);
-                        // Redirect to index
-                        // Try to load server-side cart into localStorage
-                        try {
-                            if (window.api && typeof window.api.getCart === 'function') {
+            if (apiAvailable) {
+                try {
+                    if (window.api && typeof window.api.register === 'function') {
+                        const payload = {
+                            nombre: userData.nombre,
+                            apellido: userData.apellido,
+                            email: userData.email,
+                            password: userData.password,
+                            cedula: userData.cedula,
+                            telefono: userData.telefono,
+                            photo: userData.photo || null
+                        };
+
+                        const res = await window.api.register(payload);
+                        // API returns { token, user }
+                        if (res && res.token) {
+                            localStorage.setItem('token', res.token);
+                            localStorage.setItem('userLoggedIn', 'true');
+                            localStorage.setItem('userEmail', res.user.email);
+                            localStorage.setItem('userNombre', res.user.nombre || userData.nombre);
+                            // Try to load server-side cart into localStorage
+                            try {
+                                if (window.api && typeof window.api.getCart === 'function') {
                                     let serverCartRes = await window.api.getCart();
                                     const serverCart = Array.isArray(serverCartRes) ? serverCartRes : (serverCartRes && serverCartRes.cart) ? serverCartRes.cart : [];
                                     if (Array.isArray(serverCart) && serverCart.length > 0) {
@@ -87,18 +96,29 @@ document.addEventListener("DOMContentLoaded", function() {
                                         localStorage.setItem('carrito', JSON.stringify(mapped));
                                     }
                                 }
-                        } catch (err) {
-                            console.warn('Could not load server cart after register:', err);
-                        }
+                            } catch (err) {
+                                console.warn('Could not load server cart after register:', err);
+                            }
 
-                        await Swal.fire({ title: 'Registro exitoso', text: 'Cuenta creada y autenticada.', icon: 'success', confirmButtonText: 'OK' });
-                        window.location.href = 'index.html';
-                        return;
+                            await Swal.fire({ title: 'Registro exitoso', text: 'Cuenta creada y autenticada en el servidor.', icon: 'success', confirmButtonText: 'OK' });
+                            window.location.href = 'index.html';
+                            return;
+                        }
                     }
+                    // If we reach here, server did not return success
+                    console.error('API register returned unexpected response');
+                    await Swal.fire({ title: 'Error al registrar en el servidor', text: 'No se pudo guardar la cuenta en el servidor. Por favor intenta nuevamente más tarde.', icon: 'error', confirmButtonText: 'OK' });
+                    return; // Block local fallback when server is reachable
+                } catch (err) {
+                        const message = extractApiError(err) || 'No se pudo guardar la cuenta en el servidor. Por favor intenta nuevamente más tarde.';
+                        await Swal.fire({
+                            title: 'Error al registrar en el servidor',
+                            html: `<div>${escapeHtml(message)}</div><div class="mt-2 text-muted"><small>Revisa la consola del navegador para más detalles.</small></div>`,
+                            icon: 'error',
+                            confirmButtonText: 'OK'
+                        });
+                        return; // Block local fallback when server is reachable
                 }
-            } catch (err) {
-                console.error('API register failed, falling back to local:', err);
-                // fallthrough to localStorage fallback below
             }
 
             // Fallback: Registrar nuevo usuario en localStorage
@@ -153,7 +173,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
     
     // Validación para teléfono (solo números, máximo 10)
-    const telefonoInput = document.getElementById('telefono');
+                            // Fallback: Registrar nuevo usuario en localStorage
     if (telefonoInput) {
         telefonoInput.addEventListener('input', function() {
             this.value = this.value.replace(/\D/g, '').substring(0, 10);
@@ -744,4 +764,23 @@ function usePhotoReg() {
 function stopCameraReg() {
     // Función obsoleta - ahora se usa stopCameraDirectlyReg()
     console.log('Función obsoleta stopCameraReg llamada');
+}
+
+// Helper: extract error message from API errors
+function extractApiError(err) {
+    if (!err) return null;
+    // err.message might contain a JSON string like {"error":"..."}
+    try {
+        const parsed = JSON.parse(err.message);
+        if (parsed && parsed.error) return parsed.error;
+    } catch (e) {}
+    // fallback to err.message or toString
+    return err.message || String(err);
+}
+
+function escapeHtml(unsafe) {
+    if (!unsafe) return '';
+    return unsafe.replace(/[&<>"'`]/g, function (m) {
+        return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' })[m];
+    });
 }

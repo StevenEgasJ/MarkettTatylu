@@ -7,16 +7,19 @@ const User = require('../models/User');
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
   try {
-    const { nombre, apellido, email, password, cedula, telefono, photo } = req.body;
-    if (!email || !password || !nombre) return res.status(400).json({ error: 'Missing fields' });
+  let { nombre, apellido, email, password, cedula, telefono, photo } = req.body;
+  if (!email || !password || !nombre) return res.status(400).json({ error: 'Missing fields' });
 
-    const existing = await User.findOne({ email });
+  // Normalize email to lower-case to avoid case-sensitivity mismatches between register/login
+  email = String(email).trim().toLowerCase();
+
+  const existing = await User.findOne({ email });
     if (existing) return res.status(409).json({ error: 'Email already registered' });
 
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
-    const user = new User({ nombre, apellido, email, passwordHash, cedula, telefono, photo });
+  const user = new User({ nombre, apellido, email, passwordHash, cedula, telefono, photo });
     const saved = await user.save();
 
     // Issue token at registration so client can be logged in immediately
@@ -32,10 +35,12 @@ router.post('/register', async (req, res) => {
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ error: 'Missing fields' });
+  let { email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ error: 'Missing fields' });
 
-    const user = await User.findOne({ email });
+  email = String(email).trim().toLowerCase();
+
+  const user = await User.findOne({ email });
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
     const match = await bcrypt.compare(password, user.passwordHash);

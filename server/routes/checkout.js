@@ -12,6 +12,19 @@ router.post('/', authMiddleware, async (req, res) => {
   const userId = req.user.id;
   const { items, resumen, shipping } = req.body; // items: [{ id, cantidad }]
 
+  // Debug logging: incoming checkout payload and authenticated user
+  try {
+    console.log('Incoming checkout request:', {
+      userId: userId || null,
+      hasAuthHeader: !!req.headers.authorization,
+      itemsCount: Array.isArray(items) ? items.length : 0,
+      resumenPresent: !!resumen,
+      shippingPresent: !!shipping
+    });
+  } catch (e) {
+    console.warn('Could not log checkout debug info', e);
+  }
+
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'Cart is empty' });
   }
@@ -25,8 +38,20 @@ router.post('/', authMiddleware, async (req, res) => {
       const prodId = it.id;
       const qty = parseInt(it.cantidad || it.cant || it.quantity || it.cantidad, 10) || 0;
       if (qty <= 0) throw new Error('Invalid quantity');
+      // Try to find product by ObjectId, and fallback to name/code if necessary (compatibility with legacy local IDs)
+      let product = null;
+      try {
+        if (mongoose.Types.ObjectId.isValid(prodId)) {
+          product = await Product.findById(prodId).session(session);
+        }
+      } catch (e) {
+        // ignore cast errors and fallback
+      }
 
-      const product = await Product.findOne({ _id: prodId }).session(session);
+      if (!product) {
+        product = await Product.findOne({ $or: [{ nombre: prodId }, { codigo: prodId }] }).session(session);
+      }
+
       if (!product) throw new Error(`Product not found: ${prodId}`);
       if ((product.stock || 0) < qty) throw new Error(`Insufficient stock for ${product.nombre}`);
 
@@ -45,6 +70,12 @@ router.post('/', authMiddleware, async (req, res) => {
     });
 
     await order.save({ session });
+    // Detailed log after saving the order
+    try {
+      console.log('Order saved to DB', { orderId: order._id.toString(), userId });
+    } catch (e) {
+      console.warn('Could not log saved order info', e);
+    }
 
     // Attach order to user and clear user's cart
     const user = await User.findById(userId).session(session);
@@ -53,6 +84,12 @@ router.post('/', authMiddleware, async (req, res) => {
       user.orders.push({ orderId: order._id, fecha: order.fecha, resumen: order.resumen });
       user.cart = [];
       await user.save({ session });
+      // Log after user updated
+      try {
+        console.log('User updated with new order', { userId: user._id.toString(), ordersCount: (user.orders || []).length });
+      } catch (e) {
+        console.warn('Could not log user update info', e);
+      }
     }
 
     await session.commitTransaction();
@@ -62,7 +99,20 @@ router.post('/', authMiddleware, async (req, res) => {
   } catch (err) {
     await session.abortTransaction().catch(() => {});
     session.endSession();
-    console.error('Checkout error:', err.message || err);
+    console.error('Checkout error message:', err.message || err);
+    // Include stack when available for deeper debugging
+    if (err && err.stack) console.error('Checkout error stack:', err.stack);
+    // Log some request metadata to help root-cause analysis (avoid logging full sensitive headers)
+    try {
+      console.error('Checkout request metadata:', {
+        hasAuthHeader: !!req.headers.authorization,
+        itemsCount: Array.isArray(items) ? items.length : 0,
+        resumenPresent: !!resumen
+      });
+    } catch (e) {
+      console.warn('Could not log checkout request metadata', e);
+    }
+    // Return detailed error message to client for debugging
     res.status(400).json({ error: err.message || 'Checkout failed' });
   }
 });

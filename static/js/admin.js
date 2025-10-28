@@ -3,6 +3,69 @@ class AdminPanelManager {
     constructor() {
         this.initializeAdmin();
         this.initializeAllData();
+        // Kick off background sync from server (non-blocking)
+        try {
+            this.loadServerData();
+        } catch (err) {
+            console.warn('Error starting server data load:', err);
+        }
+    }
+
+    // Attempt to fetch products and orders from the server (Atlas) and populate local cache
+    async loadServerData() {
+        // Products
+        try {
+            const res = await fetch('/api/products');
+            if (res.ok) {
+                const products = await res.json();
+                // normalize shape expected by the admin UI
+                const adminProducts = products.map(p => ({
+                    id: p._id || p.id,
+                    nombre: p.nombre,
+                    precio: p.precio,
+                    categoria: p.categoria,
+                    stock: p.stock,
+                    imagen: p.imagen,
+                    descripcion: p.descripcion,
+                    fechaCreacion: p.fechaCreacion || p.createdAt
+                }));
+                localStorage.setItem('productos', JSON.stringify(adminProducts));
+                console.log('Admin: productos cargados desde server:', adminProducts.length);
+            }
+        } catch (err) {
+            console.warn('No se pudo cargar productos desde server:', err);
+        }
+
+        // Orders
+        try {
+            const res = await fetch('/api/orders');
+            if (res.ok) {
+                const orders = await res.json();
+                // Map orders to admin local shape (compatible with existing UI)
+                const adminOrders = orders.map(o => ({
+                    id: o._id || o.id,
+                    numeroOrden: o._id || o.numeroOrden,
+                    cliente: o.resumen?.cliente || o.cliente || {},
+                    productos: o.items || [],
+                    totales: o.resumen || o.totales || {},
+                    estado: o.estado || 'pendiente',
+                    fecha: o.fecha
+                }));
+                localStorage.setItem('pedidos', JSON.stringify(adminOrders));
+                console.log('Admin: pedidos cargados desde server:', adminOrders.length);
+            }
+        } catch (err) {
+            console.warn('No se pudo cargar pedidos desde server:', err);
+        }
+
+        // Refresh UI
+        try {
+            this.loadDashboard();
+            this.showProducts();
+            this.showOrders();
+        } catch (err) {
+            console.warn('Error refrescando UI admin tras carga server:', err);
+        }
     }
 
     // Verificar autenticación de administrador
@@ -31,7 +94,7 @@ class AdminPanelManager {
             confirmButtonText: 'Iniciar Sesión',
             allowOutsideClick: false,
             allowEscapeKey: false,
-            preConfirm: () => {
+            preConfirm: async () => {
                 const email = document.getElementById('adminEmail').value;
                 const password = document.getElementById('adminPassword').value;
                 
@@ -40,12 +103,31 @@ class AdminPanelManager {
                     return false;
                 }
                 
-                if (email === 'admin@gmail.com' && password === '123456') {
+                // Attempt to create/promote admin in the backend (persist to Mongo Atlas)
+                try {
+                    const payload = { nombre: 'Administrador', email, password };
+                    const res = await fetch('/api/create-admin', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!res.ok) {
+                        const txt = await res.text().catch(()=>null);
+                        Swal.showValidationMessage('No se pudo crear el administrador: ' + (txt || res.statusText));
+                        return false;
+                    }
+
+                    const body = await res.json();
+                    console.log('Admin create response:', body);
+
+                    // Persist admin state locally for UI and redirect
                     localStorage.setItem('adminLoggedIn', 'true');
                     localStorage.setItem('adminEmail', email);
                     return true;
-                } else {
-                    Swal.showValidationMessage('Credenciales incorrectas');
+                } catch (err) {
+                    console.error('Error creating admin:', err);
+                    Swal.showValidationMessage('Error conectando con el servidor: ' + (err.message || err));
                     return false;
                 }
             }
@@ -372,34 +454,49 @@ class AdminPanelManager {
 
     // Agregar producto
     addProduct(productData) {
-        const productos = this.getProducts();
-        const newId = Math.max(...productos.map(p => p.id), 0) + 1;
-        
-        const newProduct = {
-            id: newId,
-            ...productData,
-            precio: parseFloat(productData.precio),
-            stock: parseInt(productData.stock) || 0,
-            fechaCreacion: new Date().toISOString()
-        };
-        
-        productos.push(newProduct);
-        localStorage.setItem('productos', JSON.stringify(productos));
-        
-        // Actualizar productManager.js también
-        if (typeof productManager !== 'undefined') {
-            productManager.syncWithAdminProducts();
-            console.log('ProductManager synchronized after add'); // Debug
-        }
-        
-        this.showProducts();
-        
-        Swal.fire({
-            title: '¡Éxito!',
-            text: 'Producto agregado correctamente',
-            icon: 'success',
-            timer: 2000
-        });
+        // Try to persist the product to the server (Atlas). If it fails, fall back to localStorage.
+        (async () => {
+            Swal.fire({ title: 'Guardando producto...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+            try {
+                // Build payload - server expects fields like nombre, precio, categoria, stock, imagen, descripcion
+                const payload = {
+                    nombre: productData.nombre,
+                    precio: parseFloat(productData.precio),
+                    categoria: productData.categoria,
+                    stock: parseInt(productData.stock) || 0,
+                    imagen: productData.imagen,
+                    descripcion: productData.descripcion || ''
+                };
+
+                if (window.api && typeof window.api.createProduct === 'function') {
+                    const created = await window.api.createProduct(payload);
+                    console.log('Producto creado en server:', created);
+                    // Refresh local cache from server
+                    await this.loadServerData();
+                } else {
+                    throw new Error('API client no disponible');
+                }
+
+                Swal.fire({ title: '¡Éxito!', text: 'Producto agregado correctamente', icon: 'success', timer: 2000 });
+            } catch (err) {
+                console.warn('No se pudo crear producto en server, usando localStorage. Error:', err);
+                // Fallback: persist locally
+                const productos = this.getProducts();
+                const newId = Math.max(...productos.map(p => p.id), 0) + 1;
+                const newProduct = {
+                    id: newId,
+                    ...productData,
+                    precio: parseFloat(productData.precio),
+                    stock: parseInt(productData.stock) || 0,
+                    fechaCreacion: new Date().toISOString()
+                };
+                productos.push(newProduct);
+                localStorage.setItem('productos', JSON.stringify(productos));
+                if (typeof productManager !== 'undefined') productManager.syncWithAdminProducts();
+                this.showProducts();
+                Swal.fire({ title: '¡Guardado localmente!', text: 'Producto guardado en localStorage', icon: 'warning', timer: 2000 });
+            }
+        })();
     }
 
     // Editar producto
@@ -452,53 +549,51 @@ class AdminPanelManager {
 
     // Actualizar producto
     updateProduct(productData) {
-        const productos = this.getProducts();
-        const productId = productData.id.toString();
-        const index = productos.findIndex(p => p.id.toString() === productId);
-        
-        console.log('Updating product with ID:', productId); // Debug
-        console.log('Found index:', index); // Debug
-        console.log('Product data to update:', productData); // Debug
-        
-        if (index === -1) {
-            Swal.fire('Error', 'Producto no encontrado', 'error');
-            return;
-        }
-        
-        productos[index] = {
-            ...productos[index],
-            ...productData,
-            id: parseInt(productData.id),
-            precio: parseFloat(productData.precio),
-            stock: parseInt(productData.stock) || 0
-        };
-        
-        localStorage.setItem('productos', JSON.stringify(productos));
-        
-        // Actualizar productManager.js también
-        if (typeof productManager !== 'undefined') {
-            productManager.syncWithAdminProducts();
-            console.log('ProductManager synchronized after update'); // Debug
-        }
-        
-        this.showProducts();
-        
-        // Mostrar alerta de producto actualizado
-        showProductRegisteredAlert({
-            ...productData,
-            nombre: productData.nombre,
-            precio: productData.precio,
-            categoria: productData.categoria
-        });
-        
-        setTimeout(() => {
-            Swal.fire({
-                title: '¡Producto actualizado!',
-                text: 'El producto ha sido actualizado correctamente',
-                icon: 'success',
-                timer: 2000
-            });
-        }, 1000);
+        // Try to update on server first, fallback to localStorage
+        (async () => {
+            Swal.fire({ title: 'Actualizando producto...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+            try {
+                const id = productData.id;
+                const payload = {
+                    nombre: productData.nombre,
+                    precio: parseFloat(productData.precio),
+                    categoria: productData.categoria,
+                    stock: parseInt(productData.stock) || 0,
+                    imagen: productData.imagen,
+                    descripcion: productData.descripcion || ''
+                };
+
+                if (window.api && typeof window.api.updateProduct === 'function') {
+                    await window.api.updateProduct(id, payload);
+                    await this.loadServerData();
+                } else {
+                    throw new Error('API client no disponible');
+                }
+
+                Swal.fire({ title: '¡Producto actualizado!', text: 'El producto ha sido actualizado correctamente', icon: 'success', timer: 2000 });
+            } catch (err) {
+                console.warn('Fallo actualización en server, aplicando en localStorage. Error:', err);
+                // local fallback
+                const productos = this.getProducts();
+                const productId = productData.id.toString();
+                const index = productos.findIndex(p => p.id.toString() === productId);
+                if (index === -1) {
+                    Swal.fire('Error', 'Producto no encontrado', 'error');
+                    return;
+                }
+                productos[index] = {
+                    ...productos[index],
+                    ...productData,
+                    id: parseInt(productData.id),
+                    precio: parseFloat(productData.precio),
+                    stock: parseInt(productData.stock) || 0
+                };
+                localStorage.setItem('productos', JSON.stringify(productos));
+                if (typeof productManager !== 'undefined') productManager.syncWithAdminProducts();
+                this.showProducts();
+                showProductRegisteredAlert(productData);
+            }
+        })();
     }
 
     // Eliminar producto
@@ -512,24 +607,26 @@ class AdminPanelManager {
             cancelButtonText: 'Cancelar'
         }).then((result) => {
             if (result.isConfirmed) {
-                const productos = this.getProducts();
-                const filteredProducts = productos.filter(p => p.id !== id);
-                
-                localStorage.setItem('productos', JSON.stringify(filteredProducts));
-                
-                // Actualizar productManager.js también
-                if (typeof productManager !== 'undefined') {
-                    productManager.products = filteredProducts;
-                }
-                
-                this.showProducts();
-                
-                Swal.fire({
-                    title: '¡Eliminado!',
-                    text: 'El producto ha sido eliminado',
-                    icon: 'success',
-                    timer: 2000
-                });
+                (async () => {
+                    Swal.fire({ title: 'Eliminando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                    try {
+                        if (window.api && typeof window.api.deleteProduct === 'function') {
+                            await window.api.deleteProduct(id);
+                            await this.loadServerData();
+                        } else {
+                            throw new Error('API client no disponible');
+                        }
+                        Swal.fire({ title: '¡Eliminado!', text: 'El producto ha sido eliminado', icon: 'success', timer: 2000 });
+                    } catch (err) {
+                        console.warn('Fallo eliminación en server, eliminando localmente. Error:', err);
+                        const productos = this.getProducts();
+                        const filteredProducts = productos.filter(p => p.id !== id);
+                        localStorage.setItem('productos', JSON.stringify(filteredProducts));
+                        if (typeof productManager !== 'undefined') productManager.products = filteredProducts;
+                        this.showProducts();
+                        Swal.fire({ title: '¡Eliminado localmente!', text: 'El producto fue eliminado del almacenamiento local', icon: 'warning', timer: 2000 });
+                    }
+                })();
             }
         });
     }
@@ -847,32 +944,36 @@ class AdminPanelManager {
 
     // Actualizar estado de pedido
     updateOrderStatus(orderId, newStatus) {
-        // Actualizar en pedidos
-        const pedidos = JSON.parse(localStorage.getItem('pedidos') || '[]');
-        const pedidoIndex = pedidos.findIndex(o => (o.id || o.numeroOrden) === orderId);
-        
-        if (pedidoIndex !== -1) {
-            pedidos[pedidoIndex].estado = newStatus;
-            localStorage.setItem('pedidos', JSON.stringify(pedidos));
-        }
-        
-        // Actualizar en historial de compras
-        const comprasHistorial = JSON.parse(localStorage.getItem('comprasHistorial') || '[]');
-        const compraIndex = comprasHistorial.findIndex(o => (o.id || o.numeroOrden) === orderId);
-        
-        if (compraIndex !== -1) {
-            comprasHistorial[compraIndex].estado = newStatus;
-            localStorage.setItem('comprasHistorial', JSON.stringify(comprasHistorial));
-        }
-        
-        this.showOrders();
-        
-        Swal.fire({
-            title: '¡Actualizado!',
-            text: `Estado cambiado a: ${newStatus}`,
-            icon: 'success',
-            timer: 2000
-        });
+        // Try to update on server and refresh UI. Fallback to localStorage on error.
+        (async () => {
+            Swal.fire({ title: 'Actualizando estado...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+            try {
+                if (window.api && typeof window.api.updateOrder === 'function') {
+                    await window.api.updateOrder(orderId, { estado: newStatus });
+                    await this.loadServerData();
+                } else {
+                    throw new Error('API client no disponible');
+                }
+                Swal.fire({ title: '¡Actualizado!', text: `Estado cambiado a: ${newStatus}`, icon: 'success', timer: 2000 });
+            } catch (err) {
+                console.warn('Fallo actualización de estado en server, aplicando localmente. Error:', err);
+                // Local fallback
+                const pedidos = JSON.parse(localStorage.getItem('pedidos') || '[]');
+                const pedidoIndex = pedidos.findIndex(o => (o.id || o.numeroOrden) === orderId);
+                if (pedidoIndex !== -1) {
+                    pedidos[pedidoIndex].estado = newStatus;
+                    localStorage.setItem('pedidos', JSON.stringify(pedidos));
+                }
+                const comprasHistorial = JSON.parse(localStorage.getItem('comprasHistorial') || '[]');
+                const compraIndex = comprasHistorial.findIndex(o => (o.id || o.numeroOrden) === orderId);
+                if (compraIndex !== -1) {
+                    comprasHistorial[compraIndex].estado = newStatus;
+                    localStorage.setItem('comprasHistorial', JSON.stringify(comprasHistorial));
+                }
+                this.showOrders();
+                Swal.fire({ title: 'Actualizado localmente', text: `Estado cambiado a: ${newStatus}`, icon: 'warning', timer: 2000 });
+            }
+        })();
     }
 
     // Eliminar pedido
@@ -886,24 +987,28 @@ class AdminPanelManager {
             cancelButtonText: 'Cancelar'
         }).then((result) => {
             if (result.isConfirmed) {
-                // Eliminar de pedidos
-                const pedidos = JSON.parse(localStorage.getItem('pedidos') || '[]');
-                const filteredPedidos = pedidos.filter(o => (o.id || o.numeroOrden) !== orderId);
-                localStorage.setItem('pedidos', JSON.stringify(filteredPedidos));
-                
-                // Eliminar del historial de compras
-                const comprasHistorial = JSON.parse(localStorage.getItem('comprasHistorial') || '[]');
-                const filteredCompras = comprasHistorial.filter(o => (o.id || o.numeroOrden) !== orderId);
-                localStorage.setItem('comprasHistorial', JSON.stringify(filteredCompras));
-                
-                this.showOrders();
-                
-                Swal.fire({
-                    title: '¡Eliminado!',
-                    text: 'El pedido ha sido eliminado',
-                    icon: 'success',
-                    timer: 2000
-                });
+                (async () => {
+                    Swal.fire({ title: 'Eliminando pedido...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                    try {
+                        if (window.api && typeof window.api.deleteOrder === 'function') {
+                            await window.api.deleteOrder(orderId);
+                            await this.loadServerData();
+                        } else {
+                            throw new Error('API client no disponible');
+                        }
+                        Swal.fire({ title: '¡Eliminado!', text: 'El pedido ha sido eliminado', icon: 'success', timer: 2000 });
+                    } catch (err) {
+                        console.warn('Fallo eliminación en server, eliminando localmente. Error:', err);
+                        const pedidos = JSON.parse(localStorage.getItem('pedidos') || '[]');
+                        const filteredPedidos = pedidos.filter(o => (o.id || o.numeroOrden) !== orderId);
+                        localStorage.setItem('pedidos', JSON.stringify(filteredPedidos));
+                        const comprasHistorial = JSON.parse(localStorage.getItem('comprasHistorial') || '[]');
+                        const filteredCompras = comprasHistorial.filter(o => (o.id || o.numeroOrden) !== orderId);
+                        localStorage.setItem('comprasHistorial', JSON.stringify(filteredCompras));
+                        this.showOrders();
+                        Swal.fire({ title: '¡Eliminado localmente!', text: 'El pedido fue eliminado del almacenamiento local', icon: 'warning', timer: 2000 });
+                    }
+                })();
             }
         });
     }
@@ -1331,74 +1436,70 @@ class AdminPanelManager {
 
     // Guardar cambios en la factura (versión mejorada)
     saveInvoiceChanges(orderId, updatedData) {
-        try {
-            // Actualizar en pedidos
-            const pedidos = JSON.parse(localStorage.getItem('pedidos') || '[]');
-            const pedidoIndex = pedidos.findIndex(o => (o.id || o.numeroOrden) === orderId);
-            
-            if (pedidoIndex !== -1) {
-                // Mantener datos originales importantes
-                const originalOrder = pedidos[pedidoIndex];
-                pedidos[pedidoIndex] = {
-                    ...originalOrder,
-                    ...updatedData,
-                    id: originalOrder.id || originalOrder.numeroOrden,
-                    numeroOrden: originalOrder.numeroOrden || originalOrder.id,
-                    fechaModificacion: new Date().toISOString()
-                };
-                localStorage.setItem('pedidos', JSON.stringify(pedidos));
-            }
-            
-            // Actualizar en historial de compras
-            const comprasHistorial = JSON.parse(localStorage.getItem('comprasHistorial') || '[]');
-            const compraIndex = comprasHistorial.findIndex(o => (o.id || o.numeroOrden) === orderId);
-            
-            if (compraIndex !== -1) {
-                const originalOrder = comprasHistorial[compraIndex];
-                comprasHistorial[compraIndex] = {
-                    ...originalOrder,
-                    ...updatedData,
-                    id: originalOrder.id || originalOrder.numeroOrden,
-                    numeroOrden: originalOrder.numeroOrden || originalOrder.id,
-                    fechaModificacion: new Date().toISOString()
-                };
-                localStorage.setItem('comprasHistorial', JSON.stringify(comprasHistorial));
-            }
-            
-            // Actualizar órdenes específicas del usuario si existen
-            const userEmail = updatedData.cliente?.email;
-            if (userEmail) {
-                const userOrders = JSON.parse(localStorage.getItem(`orders_${userEmail}`) || '[]');
-                const userOrderIndex = userOrders.findIndex(o => (o.id || o.numeroOrden) === orderId);
-                
-                if (userOrderIndex !== -1) {
-                    const originalOrder = userOrders[userOrderIndex];
-                    userOrders[userOrderIndex] = {
-                        ...originalOrder,
-                        ...updatedData,
-                        fechaModificacion: new Date().toISOString()
-                    };
-                    localStorage.setItem(`orders_${userEmail}`, JSON.stringify(userOrders));
+        // Try to persist invoice changes to server. Fallback to localStorage if server unavailable.
+        (async () => {
+            Swal.fire({ title: 'Guardando cambios en la factura...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+            try {
+                if (window.api && typeof window.api.updateOrder === 'function') {
+                    await window.api.updateOrder(orderId, updatedData);
+                    await this.loadServerData();
+                } else {
+                    throw new Error('API client no disponible');
+                }
+                Swal.fire({ title: '¡Factura Actualizada!', text: 'Todos los cambios han sido guardados en el servidor', icon: 'success', timer: 2500 });
+            } catch (err) {
+                console.warn('Fallo guardado en server, aplicando cambios localmente. Error:', err);
+                try {
+                    // Original local behavior
+                    const pedidos = JSON.parse(localStorage.getItem('pedidos') || '[]');
+                    const pedidoIndex = pedidos.findIndex(o => (o.id || o.numeroOrden) === orderId);
+                    
+                    if (pedidoIndex !== -1) {
+                        const originalOrder = pedidos[pedidoIndex];
+                        pedidos[pedidoIndex] = {
+                            ...originalOrder,
+                            ...updatedData,
+                            id: originalOrder.id || originalOrder.numeroOrden,
+                            numeroOrden: originalOrder.numeroOrden || originalOrder.id,
+                            fechaModificacion: new Date().toISOString()
+                        };
+                        localStorage.setItem('pedidos', JSON.stringify(pedidos));
+                    }
+                    const comprasHistorial = JSON.parse(localStorage.getItem('comprasHistorial') || '[]');
+                    const compraIndex = comprasHistorial.findIndex(o => (o.id || o.numeroOrden) === orderId);
+                    if (compraIndex !== -1) {
+                        const originalOrder = comprasHistorial[compraIndex];
+                        comprasHistorial[compraIndex] = {
+                            ...originalOrder,
+                            ...updatedData,
+                            id: originalOrder.id || originalOrder.numeroOrden,
+                            numeroOrden: originalOrder.numeroOrden || originalOrder.id,
+                            fechaModificacion: new Date().toISOString()
+                        };
+                        localStorage.setItem('comprasHistorial', JSON.stringify(comprasHistorial));
+                    }
+                    const userEmail = updatedData.cliente?.email;
+                    if (userEmail) {
+                        const userOrders = JSON.parse(localStorage.getItem(`orders_${userEmail}`) || '[]');
+                        const userOrderIndex = userOrders.findIndex(o => (o.id || o.numeroOrden) === orderId);
+                        if (userOrderIndex !== -1) {
+                            const originalOrder = userOrders[userOrderIndex];
+                            userOrders[userOrderIndex] = {
+                                ...originalOrder,
+                                ...updatedData,
+                                fechaModificacion: new Date().toISOString()
+                            };
+                            localStorage.setItem(`orders_${userEmail}`, JSON.stringify(userOrders));
+                        }
+                    }
+                    this.showOrders();
+                    Swal.fire({ title: 'Guardado localmente', text: 'Los cambios se han guardado en localStorage', icon: 'warning', timer: 2500 });
+                } catch (localErr) {
+                    console.error('Error guardando cambios localmente:', localErr);
+                    Swal.fire({ title: 'Error', text: 'Hubo un problema al guardar los cambios: ' + (localErr.message || err.message), icon: 'error' });
                 }
             }
-            
-            this.showOrders();
-            
-            Swal.fire({
-                title: '¡Factura Actualizada Completamente!',
-                text: 'Todos los cambios han sido guardados exitosamente',
-                icon: 'success',
-                timer: 3000
-            });
-            
-        } catch (error) {
-            console.error('Error guardando cambios:', error);
-            Swal.fire({
-                title: 'Error',
-                text: 'Hubo un problema al guardar los cambios: ' + error.message,
-                icon: 'error'
-            });
-        }
+        })();
     }
 
     // === FUNCIÓN PARA RESETEAR DATOS DE PRUEBA ===
