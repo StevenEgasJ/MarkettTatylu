@@ -297,10 +297,10 @@ class AdminPanelManager {
                 <td>$${producto.precio.toFixed(2)}</td>
                 <td>${this.getCategoryName(producto.categoria)}</td>
                 <td>
-                    <button class="btn btn-sm btn-outline-primary me-2" onclick="adminManager.editProduct(${producto.id})">
+                    <button class="btn btn-sm btn-outline-primary me-2" data-action="edit-product" data-id="${producto.id}">
                         <i class="fa-solid fa-edit"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="adminManager.deleteProduct(${producto.id})">
+                    <button class="btn btn-sm btn-outline-danger" data-action="delete-product" data-id="${producto.id}">
                         <i class="fa-solid fa-trash"></i>
                     </button>
                 </td>

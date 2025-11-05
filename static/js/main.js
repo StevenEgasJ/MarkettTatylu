@@ -629,9 +629,31 @@ function updateUserInterface() {
     if (!userDropdownButton || !dropdownMenu) return;
     
     if (localStorage.getItem('userLoggedIn') === 'true') {
+        // Ensure localStorage has up-to-date user fields if token is available
+        // (helps when auth response doesn't include all fields or after server-side changes)
+        (async function ensureUserLocalStorage() {
+            try {
+                const token = sessionStorage.getItem('token') || localStorage.getItem('token');
+                const needFetch = !localStorage.getItem('userNombre') || !localStorage.getItem('userApellido');
+                if (!token || !needFetch) return;
+                const res = await fetch('/api/users/me', { headers: { Authorization: 'Bearer ' + token } });
+                if (!res.ok) return;
+                const user = await res.json();
+                if (user.nombre) localStorage.setItem('userNombre', user.nombre);
+                if (user.apellido) localStorage.setItem('userApellido', user.apellido);
+                if (user.telefono) localStorage.setItem('userTelefono', user.telefono);
+                if (user.photo) localStorage.setItem('userPhoto', user.photo);
+                // refresh UI after fetching
+                try { updateUserInterface(); } catch (e) { /* ignore recursive errors */ }
+            } catch (err) {
+                console.warn('ensureUserLocalStorage failed:', err);
+            }
+        })();
+
         const userEmail = localStorage.getItem('userEmail') || 'usuario@demo.com';
-        const userNombre = localStorage.getItem('userNombre') || 'Usuario';
-        const userApellido = localStorage.getItem('userApellido') || 'Demo';
+    const userNombre = localStorage.getItem('userNombre') || 'Usuario';
+    // Don't default to 'Demo' — use empty string so invoice/profile don't show wrong last name
+    const userApellido = localStorage.getItem('userApellido') || '';
         const userPhoto = localStorage.getItem('userPhoto');
         
         // Mostrar foto del usuario o icono por defecto

@@ -61,7 +61,7 @@ router.post('/register', async (req, res) => {
     // Issue token at registration so client can be logged in immediately
     const jwtToken = jwt.sign({ id: saved._id, email: saved.email }, process.env.JWT_SECRET || 'devsecret', { expiresIn: '7d' });
 
-    res.status(201).json({ token: jwtToken, user: { id: saved._id, nombre: saved.nombre, email: saved.email } });
+  res.status(201).json({ token: jwtToken, user: { id: saved._id, nombre: saved.nombre, apellido: saved.apellido || '', email: saved.email } });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
@@ -135,7 +135,7 @@ router.post('/login', async (req, res) => {
 
     const token = jwt.sign({ id: user._id, email: user.email }, process.env.JWT_SECRET || 'devsecret', { expiresIn: '7d' });
 
-    res.json({ token, user: { id: user._id, nombre: user.nombre, email: user.email } });
+  res.json({ token, user: { id: user._id, nombre: user.nombre, apellido: user.apellido || '', email: user.email } });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });

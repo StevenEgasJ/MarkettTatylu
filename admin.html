@@ -4,6 +4,112 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panel de Administración - Tatylu</title>
+    <script>
+        // Global error handler to capture syntax errors and unexpected tokens during dev.
+        window.addEventListener('error', function(e) {
+            try {
+                console.group('Global error captured');
+                console.error('Message:', e.message);
+                console.error('Filename:', e.filename);
+                console.error('Lineno:', e.lineno, 'Colno:', e.colno);
+                console.error('Error object:', e.error);
+                console.groupEnd();
+            } catch (err) { console.error('Error handler failed', err); }
+        });
+        window.addEventListener('unhandledrejection', function(ev) {
+            try {
+                console.group('Unhandled rejection');
+                console.error(ev.reason);
+                console.groupEnd();
+            } catch (err) { console.error('Promise error handler failed', err); }
+        });
+        // Defensive normalization for the admin user photo preview element.
+        // Some stored user.photo values may be shorthand like "150x150?text=Sin+Foto" (no host)
+        // which the browser will attempt to resolve as a relative URL. Install a small
+        // observer that normalizes any assigned src to a safe absolute or local path.
+        (function() {
+            function normalizeSrc(value) {
+                if (!value) return 'https://via.placeholder.com/150x150?text=Sin+Foto';
+                const s = String(value).trim();
+                if (/^(https?:)?\/\//i.test(s) || s.startsWith('data:') || s.startsWith('/') || s.startsWith('./')) return s;
+                if (/^\d+x\d+\?/i.test(s) || s.includes('?text=')) return 'https://via.placeholder.com/' + s;
+                return './static/img/' + s;
+            }
+
+            // Wait until the element exists or until DOMContentLoaded
+            function init() {
+                const el = document.getElementById('userPhotoPreview');
+                if (!el) return;
+
+                // Normalize current src (if any)
+                try { el.src = normalizeSrc(el.getAttribute('src') || el.src || ''); } catch(e){}
+
+                // Observe attribute changes to src and normalize them
+                const mo = new MutationObserver(muts => {
+                    for (const m of muts) {
+                        if (m.type === 'attributes' && m.attributeName === 'src') {
+                            try {
+                                const v = el.getAttribute('src') || '';
+                                const norm = normalizeSrc(v);
+                                if (v !== norm) el.setAttribute('src', norm);
+                            } catch (e) { /* ignore */ }
+                        }
+                    }
+                });
+                mo.observe(el, { attributes: true, attributeFilter: ['src'] });
+
+                // Also ensure onerror fallback
+                el.addEventListener('error', function() {
+                    if (!el._erroredOnce) {
+                        el._erroredOnce = true;
+                        el.src = 'https://via.placeholder.com/150x150?text=Sin+Foto';
+                    }
+                });
+            }
+
+            if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else setTimeout(init, 0);
+        })();
+        // Global guard: normalize src attributes for all images to avoid attempts to load
+        // malformed/hostless values like "150x150?text=Sin+Foto" which trigger ERR_NAME_NOT_RESOLVED.
+        (function() {
+            function normalizeSrc(value) {
+                if (!value) return 'https://via.placeholder.com/150x150?text=Sin+Foto';
+                const s = String(value).trim();
+                if (/^(https?:)?\/\//i.test(s) || s.startsWith('data:') || s.startsWith('/') || s.startsWith('./')) return s;
+                if (/^\d+x\d+\?/i.test(s) || s.includes('?text=')) return 'https://via.placeholder.com/' + s;
+                return './static/img/' + s;
+            }
+
+            function ensureNormalized(img) {
+                try {
+                    if (!img || !img.getAttribute) return;
+                    const cur = img.getAttribute('src') || img.src || '';
+                    const norm = normalizeSrc(cur);
+                    if (cur !== norm) img.setAttribute('src', norm);
+                } catch (e) { /* ignore */ }
+            }
+
+            // Normalize existing imgs
+            document.querySelectorAll('img').forEach(ensureNormalized);
+
+            // Observe attribute changes on images and new images added to the DOM
+            const mo = new MutationObserver(muts => {
+                for (const m of muts) {
+                    if (m.type === 'attributes' && m.target && m.target.tagName === 'IMG' && m.attributeName === 'src') {
+                        ensureNormalized(m.target);
+                    }
+                    if (m.type === 'childList') {
+                        m.addedNodes.forEach(n => {
+                            if (n && n.tagName === 'IMG') ensureNormalized(n);
+                            if (n && n.querySelectorAll) n.querySelectorAll('img').forEach(ensureNormalized);
+                        });
+                    }
+                }
+            });
+
+            mo.observe(document.documentElement || document.body, { attributes: true, subtree: true, childList: true, attributeFilter: ['src'] });
+        })();
+    </script>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
     <link rel="stylesheet" href="./static/css/admin.css">
@@ -841,25 +947,65 @@
             document.getElementById('totalProducts').textContent = products.length;
             document.getElementById('totalUsers').textContent = users.length;
 
-            // Top products widget (by sold or fallback to stock)
+            // Top products widget: compute sold counts by fetching recent orders and aggregating quantities
             const topProductsContainer = document.getElementById('topProducts');
             topProductsContainer.innerHTML = '';
             if (products.length === 0) {
                 topProductsContainer.innerHTML = '<div>No hay productos</div>';
                 return;
             }
-            const items = products.slice().sort((a,b) => Number(b.sold ?? b.sales ?? b.vendidos ?? 0) - Number(a.sold ?? a.sales ?? a.vendidos ?? 0));
-            const top = items.slice(0,5);
-            top.forEach(p => {
-                const line = document.createElement('div');
-                line.className = 'mb-2 d-flex align-items-center';
-                const img = p.image || p.imageUrl || p.imagen || '';
-                const thumb = img ? `<img src="${img}" style="width:40px;height:40px;object-fit:cover;border-radius:4px;margin-right:8px;">` : '';
-                const sold = p.sold ?? p.sales ?? p.vendidos ?? 0;
-                const name = p.name || p.nombre || p.title || p.productName || '';
-                line.innerHTML = `${thumb}<div><strong>${escapeHtml(name)}</strong><br><small>${sold} vendidos</small></div>`;
-                topProductsContainer.appendChild(line);
-            });
+
+            try {
+                // fetch recent orders to compute real sold counts (fallback path)
+                const orders = await fetchJson('/api/orders') || [];
+                const salesMap = {};
+                orders.forEach(o => {
+                    const items = o.items || o.productos || o.resumen?.productos || [];
+                    items.forEach(it => {
+                        const pid = String(it.id || it.productId || it._id || it.codigo || it.sku || '').trim();
+                        const qty = Number(it.cantidad ?? it.qty ?? it.quantity ?? it.cant ?? 0) || 0;
+                        if (!pid) return;
+                        salesMap[pid] = (salesMap[pid] || 0) + qty;
+                    });
+                });
+
+                const scored = products.map(p => {
+                    const pid = String(p._id || p.id || '').trim();
+                    const soldFromProduct = Number(p.sold ?? p.sales ?? p.vendidos ?? 0) || 0;
+                    const soldFromOrders = Number(salesMap[pid] || 0);
+                    return { p, sold: Math.max(soldFromProduct, soldFromOrders) };
+                });
+
+                const top = scored.slice().sort((a,b) => b.sold - a.sold).slice(0,5);
+                if (top.length === 0 || top.every(t => t.sold === 0)) {
+                    topProductsContainer.innerHTML = '<div class="text-muted">No hay ventas registradas</div>';
+                } else {
+                    top.forEach(({p, sold}) => {
+                        const line = document.createElement('div');
+                        line.className = 'mb-2 d-flex align-items-center';
+                        const img = p.image || p.imageUrl || p.imagen || '';
+                        const thumb = img ? `<img src="${img}" style="width:40px;height:40px;object-fit:cover;border-radius:4px;margin-right:8px;">` : '';
+                        const name = p.name || p.nombre || p.title || p.productName || '';
+                        line.innerHTML = `${thumb}<div><strong>${escapeHtml(name)}</strong><br><small>${sold} vendidos</small></div>`;
+                        topProductsContainer.appendChild(line);
+                    });
+                }
+            } catch (e) {
+                console.warn('Could not compute top products from orders fallback:', e);
+                // fallback to product.sold field if present
+                const items = products.slice().sort((a,b) => Number(b.sold ?? b.sales ?? b.vendidos ?? 0) - Number(a.sold ?? a.sales ?? a.vendidos ?? 0));
+                const top = items.slice(0,5);
+                top.forEach(p => {
+                    const line = document.createElement('div');
+                    line.className = 'mb-2 d-flex align-items-center';
+                    const img = p.image || p.imageUrl || p.imagen || '';
+                    const thumb = img ? `<img src="${img}" style="width:40px;height:40px;object-fit:cover;border-radius:4px;margin-right:8px;">` : '';
+                    const sold = p.sold ?? p.sales ?? p.vendidos ?? 0;
+                    const name = p.name || p.nombre || p.title || p.productName || '';
+                    line.innerHTML = `${thumb}<div><strong>${escapeHtml(name)}</strong><br><small>${sold} vendidos</small></div>`;
+                    topProductsContainer.appendChild(line);
+                });
+            }
         }
 
         // Utility: simple HTML escaper
@@ -874,9 +1020,20 @@
         const _origShowDashboard = window.showDashboard;
         window.showDashboard = function() {
             try { if (typeof _origShowDashboard === 'function') _origShowDashboard(); } catch(e){ /* ignore */ }
-            loadDashboardStatsAndProducts();
-            // Also refresh orders/users counts in background
-            loadOrdersFromDb().catch(()=>{});
+            // Prefer the centralized AdminPanelManager when available so we don't double-render
+            if (window.adminManager && typeof adminManager.loadDashboard === 'function') {
+                try {
+                    adminManager.loadDashboard();
+                } catch (e) {
+                    console.warn('adminManager.loadDashboard failed, falling back to legacy loaders', e);
+                    loadDashboardStatsAndProducts();
+                    loadOrdersFromDb().catch(()=>{});
+                }
+            } else {
+                loadDashboardStatsAndProducts();
+                // Also refresh orders/users counts in background
+                loadOrdersFromDb().catch(()=>{});
+            }
         };
 
         const _origShowProducts = window.showProducts;
@@ -899,9 +1056,20 @@
 
         // On initial page load populate the default visible section and widgets
         document.addEventListener('DOMContentLoaded', function() {
-            // ensure dashboard and counts are loaded
+            // Prefer adminManager (server-backed) to avoid mixing in any localStorage leftovers
+            if (window.adminManager && typeof adminManager.loadDashboard === 'function') {
+                try {
+                    adminManager.loadDashboard();
+                } catch (e) {
+                    console.warn('adminManager.loadDashboard failed during DOMContentLoaded, falling back', e);
+                    loadDashboardStatsAndProducts().catch(()=>{});
+                    if (document.getElementById('dashboard-section').classList.contains('active')) loadOrdersFromDb().catch(()=>{});
+                }
+                return;
+            }
+
+            // Fallback legacy loaders (only used when adminManager is not available)
             loadDashboardStatsAndProducts().catch(()=>{});
-            // if dashboard active, also load recent orders
             if (document.getElementById('dashboard-section').classList.contains('active')) {
                 loadOrdersFromDb().catch(()=>{});
             }

@@ -1,6 +1,47 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
+const auth = require('../middleware/auth');
+
+// GET /api/users/me - return current authenticated user (no passwordHash)
+router.get('/me', auth, async (req, res) => {
+  try {
+    const userId = req.user && req.user.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    const user = await User.findById(userId).select('-passwordHash -emailVerificationToken -emailVerificationExpires');
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json(user);
+  } catch (err) {
+    console.error('Error fetching /me user:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PUT /api/users/me - update allowed profile fields for the authenticated user
+router.put('/me', auth, async (req, res) => {
+  try {
+    const userId = req.user && req.user.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    const allowed = ['nombre', 'apellido', 'telefono', 'cedula', 'photo'];
+    const updates = {};
+    for (const key of allowed) {
+      if (Object.prototype.hasOwnProperty.call(req.body, key)) {
+        const v = req.body[key] === null || req.body[key] === undefined ? '' : String(req.body[key]).trim();
+        updates[key] = v;
+      }
+    }
+
+    if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No updatable fields provided' });
+
+    const updated = await User.findByIdAndUpdate(userId, { $set: updates }, { new: true }).select('-passwordHash -emailVerificationToken -emailVerificationExpires');
+    if (!updated) return res.status(404).json({ error: 'User not found' });
+    res.json(updated);
+  } catch (err) {
+    console.error('Error updating /me user:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 
 // GET /api/users - list users (no passwords)
 router.get('/', async (req, res) => {

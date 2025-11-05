@@ -7,6 +7,15 @@ function getAuthToken() {
         return sessionStorage.getItem('token') || localStorage.getItem('token');
     } catch (e) { return localStorage.getItem('token'); }
 }
+// Escape a string so it can be safely embedded inside a single-quoted JS string in an HTML attribute
+function escapeJsStringSingle(v) {
+    if (v === undefined || v === null) return '';
+    return String(v)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r');
+}
 class AdminPanelManager {
     constructor() {
         this.initializeAdmin();
@@ -328,20 +337,59 @@ class AdminPanelManager {
     // Cargar productos más vendidos
     loadTopProducts() {
         const container = document.getElementById('topProducts');
-        container.innerHTML = `
-            <div class="d-flex justify-content-between align-items-center py-2">
-                <div>Refrigeradora Samsung</div>
-                <span class="badge bg-primary">5 ventas</span>
-            </div>
-            <div class="d-flex justify-content-between align-items-center py-2">
-                <div>Microondas LG</div>
-                <span class="badge bg-primary">3 ventas</span>
-            </div>
-            <div class="d-flex justify-content-between align-items-center py-2">
-                <div>Licuadora Oster</div>
-                <span class="badge bg-primary">2 ventas</span>
-            </div>
-        `;
+        try {
+            const productos = this.getProducts() || [];
+            if (!productos || productos.length === 0) {
+                container.innerHTML = '<div class="text-muted">No hay productos</div>';
+                return;
+            }
+
+            // Build a map of productId -> sold count by aggregating in-memory orders (this._pedidos)
+            const salesMap = {};
+            try {
+                const pedidos = this._pedidos || [];
+                for (const ord of pedidos) {
+                    const items = ord.productos || ord.items || [];
+                    for (const it of items) {
+                        // item may contain one of several id shapes
+                        const pid = String(it.id || it.productId || it._id || it.codigo || it.sku || it.product || '').trim();
+                        const qty = Number(it.cantidad ?? it.qty ?? it.quantity ?? it.cant ?? 0) || 0;
+                        if (!pid) continue;
+                        salesMap[pid] = (salesMap[pid] || 0) + qty;
+                    }
+                }
+            } catch (e) {
+                console.warn('Error computing sales map from orders:', e);
+            }
+
+            // Merge product list with sales counts; prefer explicit sold field if present
+            const scored = productos.map(p => {
+                const pid = String(p.id || p._id || '').trim();
+                const soldFromProduct = Number(p.sold ?? p.sales ?? p.vendidos ?? 0) || 0;
+                const soldFromOrders = Number(salesMap[pid] || 0);
+                return {
+                    id: pid,
+                    nombre: p.nombre || p.name || 'Producto',
+                    sold: Math.max(soldFromProduct, soldFromOrders)
+                };
+            });
+
+            const top = scored.slice().sort((a,b) => b.sold - a.sold).slice(0,5);
+            if (top.length === 0 || top.every(t => t.sold === 0)) {
+                container.innerHTML = '<div class="text-muted">No hay ventas registradas</div>';
+                return;
+            }
+
+            container.innerHTML = top.map(t => `
+                <div class="d-flex justify-content-between align-items-center py-2">
+                    <div>${escapeHtml(t.nombre || 'Producto')}</div>
+                    <span class="badge bg-primary">${t.sold} ventas</span>
+                </div>
+            `).join('');
+        } catch (err) {
+            console.warn('loadTopProducts error:', err);
+            container.innerHTML = '<div class="text-muted">No se pudo cargar top de productos</div>';
+        }
     }
 
     // Obtener color del estado
@@ -378,10 +426,10 @@ class AdminPanelManager {
                     </span>
                 </td>
                 <td>
-                    <button class="btn btn-sm btn-outline-primary me-2" onclick="adminManager.editProduct(${producto.id})" title="Editar producto">
+                    <button class="btn btn-sm btn-outline-primary me-2" data-action="edit-product" data-id="${escapeHtml(producto.id)}" title="Editar producto">
                         <i class="fa-solid fa-edit"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="adminManager.deleteProduct(${producto.id})" title="Eliminar producto">
+                    <button class="btn btn-sm btn-outline-danger" data-action="delete-product" data-id="${escapeHtml(producto.id)}" title="Eliminar producto">
                         <i class="fa-solid fa-trash"></i>
                     </button>
                 </td>
@@ -459,13 +507,39 @@ class AdminPanelManager {
         }
         
         // Llenar formulario con datos del producto
-        document.getElementById('productId').value = producto.id;
-        document.getElementById('productName').value = producto.nombre;
-        document.getElementById('productPrice').value = producto.precio;
-        document.getElementById('productCategory').value = producto.categoria;
-        document.getElementById('productStock').value = producto.stock || 0;
-        document.getElementById('productImage').value = producto.imagen;
-        document.getElementById('productDescription').value = producto.descripcion || '';
+        // Helper: sanitize strings to remove control chars that can break HTML or scripts
+        const sanitize = (v) => {
+            if (v === undefined || v === null) return '';
+            try {
+                return String(v).replace(/[\u0000-\u001F\uFFFE\uFFFF]/g, '').trim();
+            } catch (e) { return '' + v; }
+        };
+
+        document.getElementById('productId').value = sanitize(producto.id);
+        document.getElementById('productName').value = sanitize(producto.nombre || producto.name || '');
+        document.getElementById('productPrice').value = sanitize(producto.precio ?? producto.price ?? 0);
+        // Ensure category select contains the product's category value; if not, add it dynamically
+        const catSelect = document.getElementById('productCategory');
+        const prodCat = sanitize(producto.categoria || producto.category || '');
+        if (prodCat) {
+            let found = false;
+            for (let i = 0; i < catSelect.options.length; i++) {
+                if (String(catSelect.options[i].value) === prodCat) { found = true; break; }
+            }
+            if (!found) {
+                const opt = document.createElement('option');
+                opt.value = prodCat;
+                opt.textContent = prodCat;
+                try { catSelect.appendChild(opt); } catch(e){ catSelect.options[catSelect.options.length] = opt; }
+            }
+            catSelect.value = prodCat;
+        } else {
+            catSelect.value = '';
+        }
+
+        document.getElementById('productStock').value = sanitize(producto.stock ?? producto.cant ?? 0) || 0;
+        document.getElementById('productImage').value = sanitize(producto.imagen || producto.image || producto.imageUrl || '');
+        document.getElementById('productDescription').value = sanitize(producto.descripcion || producto.description || '');
         
         console.log('Form filled with product data'); // Debug
         
@@ -481,9 +555,14 @@ class AdminPanelManager {
         
         console.log('About to show modal'); // Debug
         
-        // Mostrar modal
-        const modal = new bootstrap.Modal(document.getElementById('productModal'));
-        modal.show();
+        // Mostrar modal (protegido)
+        try {
+            const modal = new bootstrap.Modal(document.getElementById('productModal'));
+            modal.show();
+        } catch (e) {
+            console.error('Error mostrando modal de producto:', e);
+            Swal.fire('Error', 'No se pudo abrir el modal de edición. Revisa la consola para más detalles.', 'error');
+        }
         
         console.log('Modal should be visible now'); // Debug
     }
@@ -1797,7 +1876,9 @@ function saveProduct() {
         
         if (productId) {
             // Editar producto existente
-            productData.id = parseInt(productId);
+            // Keep the original ID (string/ObjectId) instead of forcing a numeric parse which
+            // breaks MongoDB ObjectId values and causes server-side cast errors.
+            productData.id = productId;
             console.log('Updating product with ID:', productData.id); // Debug
             adminManager.updateProduct(productData);
             
@@ -2297,7 +2378,37 @@ function handleUserFileSelect(event) {
 // Mostrar preview de foto del usuario
 function showUserPhotoPreview(imageSrc) {
     const previewImage = document.getElementById('userPhotoPreview');
-    previewImage.src = imageSrc;
+    try {
+        let src = (imageSrc || '').toString().trim();
+        // If empty, use default placeholder
+        if (!src) {
+            src = 'https://via.placeholder.com/150x150?text=Sin+Foto';
+        } else {
+            // If it's already a data URL or absolute/relative path, keep it; otherwise normalize
+            const looksAbsolute = /^(https?:)?\/\//i.test(src) || src.startsWith('data:') || src.startsWith('/') || src.startsWith('./');
+            if (!looksAbsolute) {
+                // If it looks like a placeholder size or contains ?text=, prefix via.placeholder
+                if (/^\d+x\d+\?/i.test(src) || src.includes('?text=')) {
+                    src = 'https://via.placeholder.com/' + src;
+                } else {
+                    // Treat as local filename
+                    src = './static/img/' + src;
+                }
+            }
+        }
+
+        // Fallback to placeholder if the image fails to load
+        previewImage.onerror = function() {
+            console.warn('User photo failed to load, falling back to placeholder for', imageSrc);
+            previewImage.onerror = null;
+            previewImage.src = 'https://via.placeholder.com/150x150?text=Sin+Foto';
+        };
+
+        previewImage.src = src;
+    } catch (e) {
+        console.error('showUserPhotoPreview error:', e);
+        try { document.getElementById('userPhotoPreview').src = 'https://via.placeholder.com/150x150?text=Sin+Foto'; } catch(_){}
+    }
 }
 
 // Limpiar foto del usuario
@@ -2305,13 +2416,6 @@ function clearUserPhoto() {
     document.getElementById('userPhoto').value = '';
     document.getElementById('userPhotoPreview').src = 'https://via.placeholder.com/150x150?text=Sin+Foto';
     document.getElementById('userFileInput').value = '';
-    
-    Swal.fire({
-        title: 'Foto eliminada',
-        text: 'La foto del usuario ha sido eliminada.',
-        icon: 'info',
-        timer: 1500
-    });
 }
 
 // === FUNCIONES DE DEBUG PARA PRODUCTOS ===
