@@ -3,9 +3,9 @@
 (function(){
   // Simple carousel for the promo images (vegetales, carnes, limpieza)
   const images = [
-    { src: './static/img/promo_vegetales.jpg', caption: 'Verduras frescas con descuento' },
-    { src: './static/img/promo_carnes.jpeg', caption: 'Cortes selectos en promoción' },
-    { src: './static/img/promo_limpieza.jpg', caption: 'Limpieza y hogar: ofertas especiales' }
+    { src: './static/img/Promo_Vegetales.jpg', caption: 'Verduras frescas con descuento' },
+    { src: './static/img/Promo_Carnes.jpeg', caption: 'Cortes selectos en promoción' },
+    { src: './static/img/Promo_limpieza.jpg', caption: 'Limpieza y hogar: ofertas especiales' }
   ];
 
   const imgEl = document.getElementById('promoCarouselImg');
