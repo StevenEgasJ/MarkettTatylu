@@ -3,9 +3,9 @@
 (function(){
   // Simple carousel for the promo images (vegetales, carnes, limpieza)
   const images = [
-    { src: './static/img/Promo_Vegetales.jpg', caption: 'Verduras frescas con descuento' },
-    { src: './static/img/Promo_Carnes.jpeg', caption: 'Cortes selectos en promoción' },
-    { src: './static/img/Promo_limpieza.jpg', caption: 'Limpieza y hogar: ofertas especiales' }
+    { src: './static/img/promo_vegetales.jpg', caption: 'Verduras frescas con descuento' },
+    { src: './static/img/promo_carnes.jpeg', caption: 'Cortes selectos en promoción' },
+    { src: './static/img/promo_limpieza.jpg', caption: 'Limpieza y hogar: ofertas especiales' }
   ];
 
   const imgEl = document.getElementById('promoCarouselImg');
@@ -18,7 +18,9 @@
   function normalizeSrc(s){
     if(!s) return '';
     if(/^https?:\/\//i.test(s) || s.startsWith('data:') || s.startsWith('/')) return s;
-    if(/^\d+x\d+\?/.test(s) || s.includes('?text=')) return 'https://via.placeholder.com/' + s;
+  // If a placeholder-style src is requested (e.g. "600x375?text=...")
+  // avoid external DNS/HTTP calls and use a local SVG placeholder instead.
+  if(/^\d+x\d+\?/.test(s) || s.includes('?text=')) return './static/img/placeholder.svg';
     return s;
   }
 
@@ -34,7 +36,11 @@
   images.forEach((_,i)=>{ const dot=document.createElement('div'); dot.className='carousel-dot'+(i===0?' active':''); dot.addEventListener('click',()=>{ showSlide(i); startAuto(); }); dotsEl.appendChild(dot); });
   showSlide(0); startAuto();
 
-  imgEl.addEventListener('error', ()=> { imgEl.src = 'https://via.placeholder.com/600x375?text=Promoci%C3%B3n'; });
+  // Fallback to a local placeholder image to avoid external network/DNS issues.
+  imgEl.addEventListener('error', ()=> { imgEl.src = './static/img/placeholder.svg'; });
   const seasonImg = document.getElementById('promoSeasonImg');
-  if(seasonImg){ seasonImg.src = normalizeSrc(seasonImg.getAttribute('src')||seasonImg.src||''); seasonImg.addEventListener('error', ()=> { seasonImg.src = 'https://via.placeholder.com/600x375?text=Promoci%C3%B3n'; }); }
+  if(seasonImg){
+    seasonImg.src = normalizeSrc(seasonImg.getAttribute('src')||seasonImg.src||'');
+    seasonImg.addEventListener('error', ()=> { seasonImg.src = './static/img/placeholder.svg'; });
+  }
 })();

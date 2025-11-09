@@ -29,10 +29,10 @@
         // observer that normalizes any assigned src to a safe absolute or local path.
         (function() {
             function normalizeSrc(value) {
-                if (!value) return 'https://via.placeholder.com/150x150?text=Sin+Foto';
+                if (!value) return './static/img/placeholder.svg';
                 const s = String(value).trim();
                 if (/^(https?:)?\/\//i.test(s) || s.startsWith('data:') || s.startsWith('/') || s.startsWith('./')) return s;
-                if (/^\d+x\d+\?/i.test(s) || s.includes('?text=')) return 'https://via.placeholder.com/' + s;
+                if (/^\d+x\d+\?/i.test(s) || s.includes('?text=')) return './static/img/placeholder.svg';
                 return './static/img/' + s;
             }
 
@@ -62,7 +62,7 @@
                 el.addEventListener('error', function() {
                     if (!el._erroredOnce) {
                         el._erroredOnce = true;
-                        el.src = 'https://via.placeholder.com/150x150?text=Sin+Foto';
+                        el.src = './static/img/placeholder.svg';
                     }
                 });
             }
@@ -73,10 +73,10 @@
         // malformed/hostless values like "150x150?text=Sin+Foto" which trigger ERR_NAME_NOT_RESOLVED.
         (function() {
             function normalizeSrc(value) {
-                if (!value) return 'https://via.placeholder.com/150x150?text=Sin+Foto';
+                if (!value) return './static/img/placeholder.svg';
                 const s = String(value).trim();
                 if (/^(https?:)?\/\//i.test(s) || s.startsWith('data:') || s.startsWith('/') || s.startsWith('./')) return s;
-                if (/^\d+x\d+\?/i.test(s) || s.includes('?text=')) return 'https://via.placeholder.com/' + s;
+                if (/^\d+x\d+\?/i.test(s) || s.includes('?text=')) return './static/img/placeholder.svg';
                 return './static/img/' + s;
             }
 
@@ -499,7 +499,7 @@
                         <div class="mb-3 text-center">
                             <label class="form-label">Foto del Usuario</label>
                             <div id="userPhotoContainer" class="mb-2">
-                                <img id="userPhotoPreview" src="https://via.placeholder.com/150x150?text=Sin+Foto" alt="Foto del usuario" class="img-thumbnail rounded-circle" style="width: 120px; height: 120px; object-fit: cover;">
+                                <img id="userPhotoPreview" src="./static/img/placeholder.svg" alt="Foto del usuario" class="img-thumbnail rounded-circle" style="width: 120px; height: 120px; object-fit: cover;">
                             </div>
                             <div>
                                 <button type="button" class="btn btn-outline-primary btn-sm me-2" onclick="showUserImageOptions()">

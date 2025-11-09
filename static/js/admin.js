@@ -1080,7 +1080,8 @@ class AdminPanelManager {
             let imgSrc = (p.imagen || '').toString().trim() || '';
             if (imgSrc && !/^(https?:)?\/\//i.test(imgSrc) && !imgSrc.startsWith('/') && !imgSrc.startsWith('./')) {
                 if (/^\d+x\d+\?/i.test(imgSrc) || imgSrc.includes('?text=')) {
-                    imgSrc = 'https://via.placeholder.com/' + imgSrc;
+                    // Use local placeholder instead of external via.placeholder.com
+                    imgSrc = './static/img/placeholder.svg';
                 } else {
                     imgSrc = './static/img/' + imgSrc;
                 }
@@ -2382,14 +2383,15 @@ function showUserPhotoPreview(imageSrc) {
         let src = (imageSrc || '').toString().trim();
         // If empty, use default placeholder
         if (!src) {
-            src = 'https://via.placeholder.com/150x150?text=Sin+Foto';
+            src = './static/img/placeholder.svg';
         } else {
             // If it's already a data URL or absolute/relative path, keep it; otherwise normalize
             const looksAbsolute = /^(https?:)?\/\//i.test(src) || src.startsWith('data:') || src.startsWith('/') || src.startsWith('./');
             if (!looksAbsolute) {
                 // If it looks like a placeholder size or contains ?text=, prefix via.placeholder
                 if (/^\d+x\d+\?/i.test(src) || src.includes('?text=')) {
-                    src = 'https://via.placeholder.com/' + src;
+                    // Use local placeholder instead of external via.placeholder.com
+                    src = './static/img/placeholder.svg';
                 } else {
                     // Treat as local filename
                     src = './static/img/' + src;
@@ -2401,20 +2403,20 @@ function showUserPhotoPreview(imageSrc) {
         previewImage.onerror = function() {
             console.warn('User photo failed to load, falling back to placeholder for', imageSrc);
             previewImage.onerror = null;
-            previewImage.src = 'https://via.placeholder.com/150x150?text=Sin+Foto';
+            previewImage.src = './static/img/placeholder.svg';
         };
 
         previewImage.src = src;
-    } catch (e) {
+        } catch (e) {
         console.error('showUserPhotoPreview error:', e);
-        try { document.getElementById('userPhotoPreview').src = 'https://via.placeholder.com/150x150?text=Sin+Foto'; } catch(_){}
+        try { document.getElementById('userPhotoPreview').src = './static/img/placeholder.svg'; } catch(_){ }
     }
 }
 
 // Limpiar foto del usuario
 function clearUserPhoto() {
     document.getElementById('userPhoto').value = '';
-    document.getElementById('userPhotoPreview').src = 'https://via.placeholder.com/150x150?text=Sin+Foto';
+    document.getElementById('userPhotoPreview').src = './static/img/placeholder.svg';
     document.getElementById('userFileInput').value = '';
 }
 
