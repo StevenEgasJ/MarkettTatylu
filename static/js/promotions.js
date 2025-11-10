@@ -41,6 +41,27 @@
   const seasonImg = document.getElementById('promoSeasonImg');
   if(seasonImg){
     seasonImg.src = normalizeSrc(seasonImg.getAttribute('src')||seasonImg.src||'');
-    seasonImg.addEventListener('error', ()=> { seasonImg.src = './static/img/placeholder.svg'; });
+    // Try promo_navidad1.jpg as a seasonal-specific fallback if the original fails.
+    // If that also fails, finally fall back to the generic placeholder.svg.
+    seasonImg.addEventListener('error', function onSeasonError(){
+      try {
+        const retries = parseInt(seasonImg.getAttribute('data-promo-retries') || '0', 10) || 0;
+        if (retries === 0) {
+          // First retry: try promo_navidad1.jpg
+          seasonImg.setAttribute('data-promo-retries', '1');
+          // remove current handler briefly to avoid re-entrancy; handler will remain on the element
+          // and will run again if the new src fails
+          seasonImg.src = './static/img/promo_navidad1.jpg';
+        } else {
+          // Second failure: give up and use generic placeholder
+          seasonImg.removeEventListener('error', onSeasonError);
+          seasonImg.src = './static/img/placeholder.svg';
+        }
+      } catch (e) {
+        // On any unexpected error, ensure we set a safe placeholder
+        try { seasonImg.removeEventListener('error', onSeasonError); } catch(_){ }
+        seasonImg.src = './static/img/placeholder.svg';
+      }
+    });
   }
 })();
