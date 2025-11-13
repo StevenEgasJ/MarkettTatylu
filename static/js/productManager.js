@@ -121,6 +121,38 @@ class ProductManager {
         }));
     }
 
+    // Obtener productos por categoría (case-insensitive, soporta 'categoria' o 'category' fields)
+    getProductsByCategory(category) {
+        try {
+            if (!category) return [];
+            const catNorm = String(category).toLowerCase();
+            return this.getProducts().filter(p => {
+                const c = (p.categoria || p.category || '') || '';
+                return String(c).toLowerCase() === catNorm;
+            });
+        } catch (err) {
+            console.warn('getProductsByCategory error:', err);
+            return [];
+        }
+    }
+
+    // Buscar productos por texto en nombre, descripción o categoría (case-insensitive)
+    searchProducts(query) {
+        try {
+            if (!query || !String(query).trim()) return this.getAllProducts();
+            const q = String(query).toLowerCase();
+            return this.getProducts().filter(p => {
+                const nombre = (p.nombre || '').toString().toLowerCase();
+                const desc = (p.descripcion || '').toString().toLowerCase();
+                const cat = (p.categoria || p.category || '').toString().toLowerCase();
+                return nombre.includes(q) || desc.includes(q) || cat.includes(q);
+            });
+        } catch (err) {
+            console.warn('searchProducts error:', err);
+            return [];
+        }
+    }
+
     // Obtener producto por ID
     getProductById(id) {
         const product = this.products.find(p => String(p.id) === String(id));
@@ -452,5 +484,7 @@ class MediaHandler {
 }
 
 // Inicializar gestores (instanciación deferida a main.js to ensure window.api is available)
-let productManager;
+// Crear un alias global consistente: si ya existe `window.productManager` úsalo,
+// si no, dejar `productManager` en null para que `main.js` lo inicialice.
+var productManager = window.productManager || null;
 const mediaHandler = new MediaHandler();
