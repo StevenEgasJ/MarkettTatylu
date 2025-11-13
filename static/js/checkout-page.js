@@ -1045,6 +1045,13 @@ function wirePageEvents(){
 
   const order = generateOrder(carrito, userData, { address: { full: `${shipping.street}` } }, adjustedTotals, invoiceData);
 
+  // Prevent concurrent checkout flows (double-clicks or duplicate handlers)
+  if (window.__checkoutInProgress) {
+    console.warn('handlePlaceOrder: checkout already in progress, skipping');
+    return;
+  }
+  window.__checkoutInProgress = true;
+
     // Try to persist the order on the server so stock is decremented in MongoDB.
     let serverOrderId = null;
     try {
@@ -1100,10 +1107,11 @@ function wirePageEvents(){
 
       // Save and cleanup
       saveOrderToHistory(order);
-      try { await showFinalInvoice(order); } catch(e){}
+      try { await window.showInvoiceSingleton(order); } catch(e){}
       localStorage.removeItem('carrito');
       if(typeof actualizarCarritoUI === 'function') actualizarCarritoUI();
       // DO NOT redirect automatically — keep user on the checkout page so they can choose options
+      window.__checkoutInProgress = false;
       return;
     }
 
@@ -1111,7 +1119,8 @@ function wirePageEvents(){
     // Reduce local stock so UI reflects the purchase
     try {
       if (window.productManager && typeof window.productManager.reduceStock === 'function') {
-        await window.productManager.reduceStock(carrito);
+        // Pass order.id (if available) to ensure idempotent processing
+        await window.productManager.reduceStock(carrito, order.id || serverOrderId);
       }
     } catch (e) { console.warn('Local stock reduction failed:', e); }
 
@@ -1120,7 +1129,10 @@ function wirePageEvents(){
   localStorage.removeItem('carrito');
   if(typeof actualizarCarritoUI === 'function') actualizarCarritoUI();
 
-  await showFinalInvoice(order);
+  await window.showInvoiceSingleton(order);
+
+  // Clear in-progress guard
+  window.__checkoutInProgress = false;
 
   // DO NOT redirect automatically — keep user on the checkout page so they can choose options
   }

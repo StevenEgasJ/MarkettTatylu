@@ -838,6 +838,13 @@ function saveOrderToHistory(order) {
 
 // Mostrar factura final
 async function showFinalInvoice(order) {
+    // Prevent showing the invoice modal multiple times concurrently
+    if (window.__invoiceModalOpen) {
+        console.warn('Invoice modal already open, ignoring duplicate call');
+        return;
+    }
+    window.__invoiceModalOpen = true;
+
     const productList = order.productos.map(item => 
         `<tr>
             <td>${item.nombre}</td>
@@ -846,12 +853,13 @@ async function showFinalInvoice(order) {
             <td class="text-end">$${item.subtotal.toFixed(2)}</td>
         </tr>`
     ).join('');
-
     // Show invoice modal but keep it open when the user clicks "Descargar PDF".
     // We use preConfirm to trigger the PDF download and return false so the modal does not close.
-    const result = await Swal.fire({
-        title: '¡Compra Realizada con Éxito!',
-        html: `
+    let result;
+    try {
+        result = await Swal.fire({
+            title: '¡Compra Realizada con Éxito!',
+            html: `
             <div class="text-start">
                 <div class="alert alert-success text-center mb-4">
                     <i class="fa-solid fa-check-circle fa-3x text-success mb-2"></i>
@@ -927,6 +935,11 @@ async function showFinalInvoice(order) {
             return false;
         }
     });
+
+    } finally {
+        // Clear guard so future invoice modals can be shown
+        try { window.__invoiceModalOpen = false; } catch (e) { window.__invoiceModalOpen = false; }
+    }
 
     // Handle deny/cancel actions after the modal is finally closed by the user
     try {
@@ -1176,11 +1189,8 @@ class CheckoutManager {
                 timestamp: Date.now()
             };
 
-            // Reducir el stock de los productos comprados
-            if (typeof productManager !== 'undefined' && productManager.reduceStock) {
-                console.log('📉 Reduciendo stock de productos...');
-                await productManager.reduceStock(this.cart);
-            }
+            // NOTE: moved stock reduction to run after the order is persisted (server or local)
+            // to avoid double-applying stock changes when both client and server update stock.
 
             // Guardar el pedido
             await this.saveOrder(order);
@@ -1304,7 +1314,7 @@ function clearAllPaymentInvalids() {
 if (checkoutManager) {
     checkoutManager.showInvoice = async function(order) {
         try {
-            await showFinalInvoice(order);
+            await window.showInvoiceSingleton(order);
         } catch (err) {
             console.error('showInvoice error:', err);
         }
@@ -1313,7 +1323,7 @@ if (checkoutManager) {
     // Fallback global helper when checkoutManager is not initialized on this page
     window.checkoutShowInvoice = async function(order) {
         try {
-            await showFinalInvoice(order);
+            await window.showInvoiceSingleton(order);
         } catch (err) {
             console.error('checkoutShowInvoice error:', err);
         }
@@ -1372,6 +1382,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Función global para procesar checkout con geolocalización y facturación MEJORADA
 window.enviarCarrito = async function() {
+    // Prevent concurrent execution from other handlers
+    if (window.__checkoutInProgress) {
+        console.warn('window.enviarCarrito: checkout already in progress, skipping');
+        return;
+    }
+    window.__checkoutInProgress = true;
+
     try {
         console.log('🛒 Iniciando proceso de checkout mejorado...');
         
@@ -1609,16 +1626,16 @@ window.enviarCarrito = async function() {
                     await productManager.fetchProductsFromApi();
                     console.log('🔄 Productos refrescados desde servidor tras checkout');
                 } else {
-                    // Fallback local stock update
-                    updateProductStock(carrito);
+                    // Fallback local stock update (pass order id for idempotency)
+                    updateProductStock(carrito, order.id);
                 }
             } catch (err) {
                 console.warn('No se pudo refrescar productos desde API, actualizando localmente:', err);
-                updateProductStock(carrito);
+                updateProductStock(carrito, order.id);
             }
 
             // ✅ PASO 9: Mostrar factura final
-            await showFinalInvoice(order);
+            await window.showInvoiceSingleton(order);
 
             // ✅ PASO 10: Limpiar carrito
             try {
@@ -1658,6 +1675,9 @@ window.enviarCarrito = async function() {
             icon: 'error',
             confirmButtonText: 'OK'
         });
+    }
+    finally {
+        try { window.__checkoutInProgress = false; } catch(e){}
     }
 };
 
@@ -1781,44 +1801,9 @@ window.downloadInvoicePDF = function(order) {
 
 // =================== CONTROL DE STOCK ===================
 
-// Función para actualizar stock después de una compra
-function updateProductStock(productos) {
-    try {
-        console.log('📦 Actualizando stock de productos...');
-        
-        if (typeof productManager !== 'undefined') {
-            productos.forEach(item => {
-                // Actualizar en productManager
-                const stockResult = productManager.reduceStock(item.id, item.cantidad);
-                console.log(`📦 Stock actualizado para ${item.nombre}: ${stockResult.success ? 'OK' : 'ERROR'}`);
-                
-                if (stockResult.success) {
-                    console.log(`✅ ${item.nombre}: ${stockResult.newStock} unidades restantes`);
-                } else {
-                    console.warn(`⚠️ Advertencia: ${stockResult.message}`);
-                }
-                
-                // IMPORTANTE: También actualizar en los productos del admin
-                updateAdminProductStock(item.id, item.cantidad);
-            });
-            
-            productManager.saveProducts();
-            console.log('✅ Stock actualizado y guardado en productManager');
-            
-            // Refrescar la visualización de productos si está disponible
-            if (typeof window.refreshProductDisplay === 'function') {
-                window.refreshProductDisplay();
-                console.log('🔄 Display de productos refrescado');
-            }
-            
-        } else {
-            console.warn('⚠️ productManager no disponible');
-        }
-        
-    } catch (error) {
-        console.error('❌ Error actualizando stock:', error);
-    }
-}
+// NOTE: updateProductStock está diseñado para ejecutarse una sola vez por orden.
+// Usa el parámetro `orderId` para hacer la operación idempotente en caso de
+// que múltiples flujos intenten actualizar el stock para la misma orden.
 
 // Función para actualizar stock en productos del admin
 function updateAdminProductStock(productId, quantity) {
@@ -1892,21 +1877,73 @@ function validateEmail(email) {
 }
 
 // Función para actualizar stock de productos (simulado en localStorage)
-function updateProductStock(carrito) {
+// Acepta `orderId` para asegurar idempotencia por orden.
+async function updateProductStock(carrito, orderId) {
     try {
-        // Obtener inventario actual
-        const inventario = JSON.parse(localStorage.getItem('productInventory') || '{}');
-        
-        carrito.forEach(item => {
-            if (inventario[item.id]) {
-                inventario[item.id] = Math.max(0, inventario[item.id] - item.cantidad);
+        // Idempotency by orderId preferred
+        try {
+            if (orderId) {
+                if (!window.__processedStockOrderIds) window.__processedStockOrderIds = new Set();
+                if (window.__processedStockOrderIds.has(String(orderId))) {
+                    console.warn('updateProductStock: order already processed, skipping', orderId);
+                    return;
+                }
+                window.__processedStockOrderIds.add(String(orderId));
             }
-        });
-        
-        // Guardar inventario actualizado
-        localStorage.setItem('productInventory', JSON.stringify(inventario));
-        console.log('📦 Stock actualizado:', inventario);
-        
+        } catch (e) {
+            console.warn('updateProductStock: idempotency guard failed', e);
+        }
+
+        // First, let productManager handle reduction (it will also attempt server-sync if implemented)
+        try {
+            if (typeof productManager !== 'undefined' && typeof productManager.reduceStock === 'function') {
+                await productManager.reduceStock(carrito, orderId);
+                console.log('✅ productManager.reduceStock completed');
+            } else {
+                console.warn('updateProductStock: productManager.reduceStock not available');
+            }
+        } catch (e) {
+            console.warn('updateProductStock: productManager.reduceStock failed', e);
+        }
+
+        // Also update admin products stored in localStorage so admin view stays consistent
+        try {
+            const adminProducts = JSON.parse(localStorage.getItem('productos') || '[]');
+            let changed = false;
+            (carrito || []).forEach(item => {
+                const idx = adminProducts.findIndex(p => String(p.id) === String(item.id));
+                if (idx !== -1) {
+                    const currentStock = Number(adminProducts[idx].stock) || 0;
+                    const newStock = Math.max(0, currentStock - Number(item.cantidad));
+                    if (newStock !== currentStock) {
+                        adminProducts[idx].stock = newStock;
+                        adminProducts[idx].fechaModificacion = new Date().toISOString();
+                        changed = true;
+                        console.log(`📦 Admin stock updated for ${adminProducts[idx].nombre || adminProducts[idx].id}: ${currentStock} -> ${newStock}`);
+                    }
+                }
+            });
+            if (changed) {
+                localStorage.setItem('productos', JSON.stringify(adminProducts));
+            }
+        } catch (e) {
+            console.warn('updateProductStock: failed updating admin products', e);
+        }
+
+        // Also update productInventory map (legacy) to keep consistency with other parts of UI
+        try {
+            const inventario = JSON.parse(localStorage.getItem('productInventory') || '{}');
+            (carrito || []).forEach(item => {
+                if (inventario[item.id] !== undefined) {
+                    inventario[item.id] = Math.max(0, (Number(inventario[item.id]) || 0) - Number(item.cantidad));
+                }
+            });
+            localStorage.setItem('productInventory', JSON.stringify(inventario));
+        } catch (e) {
+            console.warn('updateProductStock: failed updating productInventory', e);
+        }
+
+        console.log('📦 updateProductStock completed for orderId=', orderId || 'none');
     } catch (error) {
         console.error('Error actualizando stock:', error);
     }
@@ -1963,3 +2000,34 @@ if (typeof window.checkoutManager !== 'undefined' && window.checkoutManager) {
         return result;
     };
 }
+
+// Global singleton wrapper to ensure the invoice modal is shown only once per order
+window.showInvoiceSingleton = async function(order) {
+    try {
+        if (!order) return;
+        // If modal already open, ignore
+        if (window.__invoiceModalOpen) {
+            console.warn('showInvoiceSingleton: modal already open, skipping');
+            return;
+        }
+
+        // If we've already shown this order's invoice in this session, skip
+        try {
+            if (!window.__shownInvoiceOrders) window.__shownInvoiceOrders = new Set();
+            const oid = order.id || order.numeroFactura || order.numeroOrden || '';
+            if (oid && window.__shownInvoiceOrders.has(String(oid))) {
+                console.warn('showInvoiceSingleton: invoice for this order already shown, skipping', oid);
+                return;
+            }
+            // mark as shown (optimistic) so concurrent callers won't re-show
+            if (oid) window.__shownInvoiceOrders.add(String(oid));
+        } catch (e) {
+            console.warn('showInvoiceSingleton: could not manage shown set', e);
+        }
+
+        // Delegate to the actual modal function
+        await showFinalInvoice(order);
+    } catch (err) {
+        console.error('showInvoiceSingleton error:', err);
+    }
+};

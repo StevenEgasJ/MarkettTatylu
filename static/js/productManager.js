@@ -209,19 +209,45 @@ class ProductManager {
     }
 
     // Reducir stock después de una compra
-    async reduceStock(cartItems) {
+    // Accepts an optional orderId to make the operation idempotent per-order.
+    async reduceStock(cartItems, orderId) {
         try {
-            console.log('📉 Reduciendo stock de productos comprados...');
-            
+            // Prefer idempotency by orderId when provided
+            try {
+                if (orderId) {
+                    if (!window.__processedStockOrderIds) window.__processedStockOrderIds = new Set();
+                    if (window.__processedStockOrderIds.has(String(orderId))) {
+                        console.warn('reduceStock: order already processed, skipping (orderId)', orderId);
+                        return true;
+                    }
+                    window.__processedStockOrderIds.add(String(orderId));
+                } else {
+                    // Fallback: checksum guard when no orderId is available
+                    if (!window.__processedStockChecks) window.__processedStockChecks = new Set();
+                    const checksum = (cartItems || []).slice().map(i => `${i.id}:${i.cantidad}`).sort().join('|');
+                    if (window.__processedStockChecks.has(checksum)) {
+                        console.warn('reduceStock: same cart already processed, skipping (checksum)', checksum);
+                        return true;
+                    }
+                    // Mark as processed immediately to prevent race conditions
+                    window.__processedStockChecks.add(checksum);
+                }
+            } catch (e) {
+                console.warn('reduceStock: could not compute idempotency guard', e);
+            }
+
+            console.log('📉 Reduciendo stock de productos comprados... (orderId=' + (orderId || 'none') + ')');
+
             for (const item of cartItems) {
                 const product = this.getProductById(item.id);
                 if (product) {
-                    const newStock = Math.max(0, Number(product.stock) - Number(item.cantidad));
+                    const prevStock = Number(product.stock) || 0;
+                    const newStock = Math.max(0, prevStock - Number(item.cantidad));
                     await this.updateStock(item.id, newStock);
-                    console.log(`✅ Stock reducido: ${product.nombre} - Stock anterior: ${product.stock}, Vendido: ${item.cantidad}, Nuevo stock: ${newStock}`);
+                    console.log(`✅ Stock reducido: ${product.nombre} - Stock anterior: ${prevStock}, Vendido: ${item.cantidad}, Nuevo stock: ${newStock}`);
                 }
             }
-            
+
             return true;
         } catch (error) {
             console.error('❌ Error reduciendo stock:', error);

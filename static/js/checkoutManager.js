@@ -588,8 +588,22 @@ window.CheckoutManager = window.CheckoutManager || class CheckoutManager {
     }
 
     // Actualizar stock de productos después de la compra
-    updateProductStock(productos) {
+    updateProductStock(productos, orderId) {
         try {
+            // Idempotency by orderId
+            try {
+                if (orderId) {
+                    if (!window.__processedStockOrderIds) window.__processedStockOrderIds = new Set();
+                    if (window.__processedStockOrderIds.has(String(orderId))) {
+                        console.warn('checkoutManager.updateProductStock: order already processed, skipping', orderId);
+                        return;
+                    }
+                    window.__processedStockOrderIds.add(String(orderId));
+                }
+            } catch (e) {
+                console.warn('checkoutManager.updateProductStock: idempotency guard failed', e);
+            }
+
             // Actualizar stock en productos del admin
             const adminProducts = JSON.parse(localStorage.getItem('productos') || '[]');
             let stockUpdated = false;
@@ -600,7 +614,6 @@ window.CheckoutManager = window.CheckoutManager || class CheckoutManager {
                     const newStock = Math.max(0, (adminProducts[productIndex].stock || 0) - item.cantidad);
                     adminProducts[productIndex].stock = newStock;
                     stockUpdated = true;
-                    
                     console.log(`📦 Stock actualizado para ${item.nombre}: ${adminProducts[productIndex].stock + item.cantidad} → ${newStock}`);
                 }
             });
@@ -608,12 +621,12 @@ window.CheckoutManager = window.CheckoutManager || class CheckoutManager {
             if (stockUpdated) {
                 // Guardar productos del admin actualizados
                 localStorage.setItem('productos', JSON.stringify(adminProducts));
-                
+
                 // Sincronizar con productManager si existe
                 if (typeof productManager !== 'undefined') {
                     productManager.syncWithAdminProducts();
                 }
-                
+
                 console.log('✅ Stock actualizado correctamente');
             }
         } catch (error) {
@@ -630,6 +643,15 @@ window.CheckoutManager = window.CheckoutManager || class CheckoutManager {
 
     // Mostrar factura final
     async showInvoice(order) {
+        // If a global singleton invoice displayer exists, delegate to it
+        if (typeof window.showInvoiceSingleton === 'function') {
+            try {
+                return await window.showInvoiceSingleton(order);
+            } catch (err) {
+                console.warn('window.showInvoiceSingleton failed, falling back to local showInvoice:', err);
+            }
+        }
+
         const productosHtml = order.productos.map(item => `
             <tr>
                 <td>${item.nombre}</td>
