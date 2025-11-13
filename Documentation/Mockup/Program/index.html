@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Star Minimarket</title>
+    <link rel="stylesheet" href="./static/css/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+</head>
+
+<body>
+    <header>
+        <div class="container">
+            <div class="logo">
+                <h1>Star Minimarket</h1>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="#inicio" class="active">Inicio</a></li>
+                    <li><a href="#productos">Productos</a></li>
+                    <li><a href="#ofertas">Ofertas</a></li>
+                    <li><a href="#contacto">Contacto</a></li>
+                    <li><a href="#" id="wishlist-link"><i class="fas fa-heart"></i> Favoritos <span class="wishlist-count">0</span></a></li>
+                    <li><a href="login.html">Iniciar Sesión</a></li>
+                    <li><a href="registro.html">Registrarse</a></li>
+                </ul>
+            </nav>
+            <div class="cart-icon">
+                <i class="fas fa-shopping-cart"></i>
+                <span class="cart-count">0</span>
+            </div>
+        </div>
+    </header>
+
+    <div class="shopping-cart">
+        <h2>Carrito de Compras</h2>
+        <div class="coupon-section">
+            <input type="text" id="coupon-input" placeholder="Código de cupón">
+            <button id="apply-coupon-btn" class="btn">Aplicar</button>
+            <p id="coupon-message"></p>
+        </div>
+        <div class="cart-items">
+            <p class="empty-cart">No hay productos en el carrito</p>
+        </div>
+        <div class="cart-total">
+            <p>Subtotal: <span id="cart-subtotal-price">$0.00</span></p>
+            <p id="discount-line" style="display:none;">Descuento: <span id="cart-discount-price">$0.00</span></p>
+            <p>IVA (15%): <span id="cart-iva-price">$0.00</span></p>
+            <p>Total: <span id="cart-total-price">$0.00</span></p>
+            <button id="checkout-btn">Realizar Compra</button>
+            <button id="clear-cart">Vaciar Carrito</button>
+        </div>
+    </div>
+
+    <div class="wishlist-panel" id="wishlist-panel">
+        <h2>Mis Favoritos</h2>
+        <button class="close-wishlist" id="close-wishlist">✖</button>
+        <div class="wishlist-items" id="wishlist-items">
+            <p class="empty-wishlist">No hay productos favoritos</p>
+        </div>
+    </div>
+
+    <div class="purchase-history-panel" id="purchase-history-panel">
+        <h2>Historial de Compras</h2>
+        <button class="close-history" id="close-history">✖</button>
+        <div class="history-items" id="history-items">
+            <p class="empty-history">No hay compras registradas</p>
+        </div>
+    </div>
+
+    <section id="hero">
+        <div class="container">
+            <div class="hero-content">
+                <h2>Bienvenido a Star Minimarket</h2>
+                <p>Los mejores productos para tu hogar con entrega rápida y segura.</p>
+                <a href="#productos" class="btn">Ver Productos</a>
+            </div>
+        </div>
+    </section>
+
+    <section id="categorias">
+        <div class="container">
+            <h2>Categorías</h2>
+            <div class="search-container">
+                <input type="text" id="search-input" placeholder="Buscar productos...">
+                <button id="search-btn" class="btn"><i class="fas fa-search"></i> Buscar</button>
+                <button id="compare-btn" class="btn btn-secondary"><i class="fas fa-balance-scale"></i> Comparar (<span id="compare-count">0</span>)</button>
+            </div>
+            <div class="filter-buttons">
+                <button class="filter-btn active" data-category="todos">Todos</button>
+                <button class="filter-btn" data-category="alimentos">Alimentos</button>
+                <button class="filter-btn" data-category="bebidas">Bebidas</button>
+                <button class="filter-btn" data-category="limpieza">Limpieza</button>
+                <button class="filter-btn" data-category="personal">Cuidado Personal</button>
+            </div>
+        </div>
+    </section>
+
+    <section id="productos">
+        <div class="container">
+            <h2>Nuestros Productos</h2>
+            <div class="products-grid">
+
+            </div>
+        </div>
+    </section>
+
+    <section id="ofertas">
+        <div class="container">
+            <h2>Ofertas Especiales</h2>
+            <div class="offers-container">
+                <div class="offer-card">
+                    <div class="offer-badge">-15%</div>
+                    <img src="static/images/pack_limpieza.jpg" alt="Oferta Especial">
+                    <div class="offer-content">
+                        <h3>Pack Limpieza</h3>
+                        <p class="price"><span class="original">$15.99</span> $13.59</p>
+                        <button class="add-to-cart-btn" data-id="oferta1" data-name="Pack Limpieza" data-price="13.59"
+                            data-img="https://via.placeholder.com/150" data-category="limpieza">Añadir al
+                            Carrito</button>
+                    </div>
+                </div>
+                <div class="offer-card">
+                    <div class="offer-badge">-20%</div>
+                    <img src="static/images/pack_leche.jpg" alt="Oferta Especial">
+                    <div class="offer-content">
+                        <h3>Combo Desayuno</h3>
+                        <p class="price"><span class="original">$12.50</span> $10.00</p>
+                        <button class="add-to-cart-btn" data-id="oferta2" data-name="Combo Desayuno" data-price="10.00"
+                            data-img="https://via.placeholder.com/150" data-category="alimentos">Añadir al
+                            Carrito</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="contacto">
+        <div class="container">
+            <h2>Contáctanos</h2>
+            <div class="contact-container">
+                <div class="contact-info">
+                    <div class="info-item">
+                        <i class="fas fa-map-marker-alt"></i>
+                        <p>3117 Perez Pareja, Machachi/p>
+                    </div>
+                    <div class="info-item">
+                        <i class="fas fa-phone"></i>
+                        <p> +593 0989688887</p>
+                    </div>
+                    <div class="info-item">
+                        <i class="fas fa-envelope"></i>
+                        <p>info@starminimarket.com</p>
+                    </div>
+                    <div class="info-item">
+                        <i class="fas fa-clock"></i>
+                        <p>Lunes a Sábado: 8:00 AM - 9:00 PM<br>Domingo: 9:00 AM - 6:00 PM</p>
+                    </div>
+                </div>
+                <div class="contact-form">
+                    <form id="contact-form">
+                        <div class="form-group">
+                            <label for="name">Nombre</label>
+                            <input type="text" id="name" name="name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="email">Email</label>
+                            <input type="email" id="email" name="email" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="message">Mensaje</label>
+                            <textarea id="message" name="message" rows="5" required></textarea>
+                        </div>
+                        <button type="submit" class="btn">Enviar Mensaje</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h3>Star Minimarket</h3>
+                    <p>Tu tienda de confianza para productos del hogar de calidad.</p>
+                    <button id="view-history-btn" class="btn btn-small">Ver Historial de Compras</button>
+                </div>
+                <div class="footer-section">
+                    <h3>Enlaces Rápidos</h3>
+                    <ul>
+                        <li><a href="#inicio">Inicio</a></li>
+                        <li><a href="#productos">Productos</a></li>
+                        <li><a href="#ofertas">Ofertas</a></li>
+                        <li><a href="#contacto">Contacto</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h3>Síguenos</h3>
+                    <div class="social-icons">
+                        <a href="#"><i class="fab fa-facebook"></i></a>
+                        <a href="#"><i class="fab fa-instagram"></i></a>
+                        <a href="#"><i class="fab fa-twitter"></i></a>
+                    </div>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2023 Star Minimarket. Todos los derechos reservados.</p>
+            </div>
+        </div>
+    </footer>
+
+    <div id="compare-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" id="close-compare">×</span>
+            <h2>Comparador de Productos</h2>
+            <div id="compare-container"></div>
+            <button id="clear-compare" class="btn">Limpiar Comparación</button>
+        </div>
+    </div>
+
+    <script src="./static/js/auth.js"></script>
+    <script src="./static/js/script.js"></script>
+</body>
+
+</html>
