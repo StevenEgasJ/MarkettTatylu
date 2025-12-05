@@ -4,5 +4,16 @@
     "name": "New Collection",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
-  "item": []
+  "item": [
+    {
+      "name": "New Request",
+      "id": "e5774289-46ef-4df7-b110-18e89f10e0ed",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": ""
+        }
+      }
+    }
+  ]
 }

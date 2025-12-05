@@ -3,6 +3,7 @@ const { Types } = require('mongoose');
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const Product = require('../models/Product');
+const Review = require('../models/Review');
 
 const router = express.Router();
 const SAFE_USER_FIELDS = '-passwordHash -emailVerificationToken -emailVerificationExpires';
@@ -294,6 +295,184 @@ router.get('/products/:identifier', async (req, res) => {
     res.json(doc);
   } catch (err) {
     console.error('Public product lookup failed:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Reviews listing available at /review or /reviews
+router.get(['/review', '/reviews'], async (req, res) => {
+  try {
+    const limit = parseLimit(req.query.limit);
+    const reviews = await Review.find()
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(limit)
+      .lean();
+    res.json(reviews);
+  } catch (err) {
+    console.error('Public reviews list failed:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /review (alias /reviews) - create a new review
+router.post(['/review', '/reviews'], async (req, res) => {
+  try {
+    const productId = normalizeId(req.body.productId);
+    const rating = Number(req.body.rating);
+
+    if (!productId) {
+      return res.status(400).json({ error: 'productId is required' });
+    }
+
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      return res.status(400).json({ error: 'rating must be an integer between 1 and 5' });
+    }
+
+    // Verify product exists
+    if (!Types.ObjectId.isValid(productId)) {
+      return res.status(400).json({ error: 'Invalid productId format' });
+    }
+
+    const product = await Product.findById(productId).select('_id');
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    const newReview = new Review({
+      productId,
+      userId: req.body.userId ? Types.ObjectId(req.body.userId) : undefined,
+      name: req.body.name,
+      email: req.body.email,
+      rating,
+      title: req.body.title,
+      body: req.body.body,
+      approved: TRUE_FLAG_VALUES.has(req.body.approved)
+    });
+
+    const saved = await newReview.save();
+    res.status(201).json(saved);
+  } catch (err) {
+    console.error('Public review create failed:', err);
+    res.status(400).json({ error: 'Invalid review payload' });
+  }
+});
+
+// GET /reviews/product/:productId - get all reviews for a specific product
+router.get('/reviews/product/:productId', async (req, res) => {
+  try {
+    const productId = normalizeId(req.params.productId);
+    
+    if (!productId || !Types.ObjectId.isValid(productId)) {
+      return res.status(400).json({ error: 'Invalid productId format' });
+    }
+
+    const limit = parseLimit(req.query.limit);
+    const reviews = await Review.find({ productId })
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(limit)
+      .lean();
+    
+    res.json(reviews);
+  } catch (err) {
+    console.error('Public reviews by product failed:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PUT /review/:identifier (alias /reviews/:identifier)
+router.put(['/review/:identifier', '/reviews/:identifier'], async (req, res) => {
+  try {
+    const { doc, error } = await fetchByIdentifier({
+      Model: Review,
+      identifier: req.params.identifier,
+      select: '_id',
+      sortField: 'createdAt',
+      lean: false
+    });
+
+    if (error) return res.status(400).json({ error });
+    if (!doc) return res.status(404).json({ error: 'Review not found' });
+
+    const updates = {};
+    const fieldsToTrim = ['name', 'email', 'title', 'body'];
+    fieldsToTrim.forEach((field) => {
+      if (Object.prototype.hasOwnProperty.call(req.body, field)) {
+        const value = req.body[field] == null ? '' : String(req.body[field]).trim();
+        updates[field] = value;
+      }
+    });
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'rating')) {
+      const rating = Number(req.body.rating);
+      if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+        return res.status(400).json({ error: 'rating must be an integer between 1 and 5' });
+      }
+      updates.rating = rating;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'approved')) {
+      updates.approved = TRUE_FLAG_VALUES.has(req.body.approved);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'productId')) {
+      const productId = normalizeId(req.body.productId);
+      if (!productId || !Types.ObjectId.isValid(productId)) {
+        return res.status(400).json({ error: 'Invalid productId format' });
+      }
+      const product = await Product.findById(productId).select('_id');
+      if (!product) {
+        return res.status(404).json({ error: 'Product not found' });
+      }
+      updates.productId = productId;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No updatable fields provided' });
+    }
+
+    const updated = await Review.findByIdAndUpdate(doc._id, { $set: updates }, { new: true, runValidators: true });
+    res.json(updated);
+  } catch (err) {
+    console.error('Public review update failed:', err);
+    res.status(400).json({ error: 'Invalid update payload' });
+  }
+});
+
+// DELETE /review/:identifier (alias /reviews/:identifier)
+router.delete(['/review/:identifier', '/reviews/:identifier'], async (req, res) => {
+  try {
+    const { doc, error } = await fetchByIdentifier({
+      Model: Review,
+      identifier: req.params.identifier,
+      select: '_id',
+      sortField: 'createdAt',
+      lean: false
+    });
+
+    if (error) return res.status(400).json({ error });
+    if (!doc) return res.status(404).json({ error: 'Review not found' });
+
+    await Review.findByIdAndDelete(doc._id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Public review delete failed:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// DELETE /reviews/product/:productId - delete all reviews for a specific product
+router.delete('/reviews/product/:productId', async (req, res) => {
+  try {
+    const productId = normalizeId(req.params.productId);
+    
+    if (!productId || !Types.ObjectId.isValid(productId)) {
+      return res.status(400).json({ error: 'Invalid productId format' });
+    }
+
+    const result = await Review.deleteMany({ productId });
+    res.json({ success: true, deletedCount: result.deletedCount });
+  } catch (err) {
+    console.error('Public reviews delete by product failed:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
