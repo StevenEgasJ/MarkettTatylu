@@ -85,8 +85,8 @@ async function resolveUserByIdentifier(identifier, { select, lean = true } = {})
   });
 }
 
-// Users listing available at /users?limit=10
-router.get('/users', async (req, res) => {
+// Users listing available at /user or /users
+router.get(['/user', '/users'], async (req, res) => {
   try {
     const limit = parseLimit(req.query.limit);
     const users = await User.find()
@@ -101,8 +101,8 @@ router.get('/users', async (req, res) => {
   }
 });
 
-// POST /users - create a new user document
-router.post('/users', async (req, res) => {
+// POST /user (alias /users) - create a new user document
+router.post(['/user', '/users'], async (req, res) => {
   try {
     const nombre = (req.body.nombre || '').trim();
     const email = (req.body.email || '').trim().toLowerCase();
@@ -146,8 +146,8 @@ router.post('/users', async (req, res) => {
   }
 });
 
-// Support /users/:identifier where identifier matches id, ObjectId, or 1-based index
-router.get('/users/:identifier', async (req, res) => {
+// Support /user/:identifier (alias /users/:identifier)
+router.get(['/user/:identifier', '/users/:identifier'], async (req, res) => {
   try {
     const { doc, error } = await resolveUserByIdentifier(req.params.identifier, {
       select: SAFE_USER_FIELDS,
@@ -163,8 +163,8 @@ router.get('/users/:identifier', async (req, res) => {
   }
 });
 
-// PUT /users/:identifier - update existing user by ObjectId or index
-router.put('/users/:identifier', async (req, res) => {
+// PUT /user/:identifier (alias /users/:identifier)
+router.put(['/user/:identifier', '/users/:identifier'], async (req, res) => {
   try {
     const { doc, error } = await resolveUserByIdentifier(req.params.identifier, {
       select: '_id publicId',
@@ -222,8 +222,8 @@ router.put('/users/:identifier', async (req, res) => {
   }
 });
 
-// DELETE /users/:identifier - delete user by ObjectId or index
-router.delete('/users/:identifier', async (req, res) => {
+// DELETE /user/:identifier (alias /users/:identifier)
+router.delete(['/user/:identifier', '/users/:identifier'], async (req, res) => {
   try {
     const { doc, error } = await resolveUserByIdentifier(req.params.identifier, {
       select: '_id',

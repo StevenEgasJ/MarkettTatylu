@@ -14,6 +14,7 @@ const ordersRouter = require('./routes/orders');
 const usersRouter = require('./routes/users');
 const reviewsRouter = require('./routes/reviews');
 const categoriesRouter = require('./routes/categories');
+const publicRouter = require('./routes/public');
 const Product = require('./models/Product');
 const User = require('./models/User');
 const bcrypt = require('bcryptjs');
@@ -77,6 +78,9 @@ app.use('/api/reviews', reviewsRouter);
 app.use('/api/categories', categoriesRouter);
 // Debug routes (only enabled when DEBUG_API=true in env)
 app.use('/api/debug', debugRouter);
+
+// Public read-only endpoints (no /api prefix)
+app.use('/', publicRouter);
 
 // Serve frontend static files (parent folder of server/)
 const publicPath = path.join(__dirname, '..');
