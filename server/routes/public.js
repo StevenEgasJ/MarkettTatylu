@@ -1,0 +1,278 @@
+const express = require('express');
+const { Types } = require('mongoose');
+const bcrypt = require('bcryptjs');
+const User = require('../models/User');
+const Product = require('../models/Product');
+
+const router = express.Router();
+const SAFE_USER_FIELDS = '-passwordHash -emailVerificationToken -emailVerificationExpires';
+const MAX_LIMIT = 100;
+const DEFAULT_LIMIT = 20;
+const TRUE_FLAG_VALUES = new Set(['true', '1', 1, true]);
+
+function normalizeId(value) {
+  return value === undefined || value === null ? '' : String(value).trim();
+}
+
+function sanitizeUser(userDoc) {
+  if (!userDoc) return null;
+  const plain = userDoc.toObject ? userDoc.toObject({ virtuals: true }) : { ...userDoc };
+  plain.id = plain.id || plain.publicId || (plain._id ? plain._id.toString() : undefined);
+  delete plain.passwordHash;
+  delete plain.emailVerificationToken;
+  delete plain.emailVerificationExpires;
+  return plain;
+}
+
+function parseLimit(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_LIMIT;
+  return Math.min(Math.floor(parsed), MAX_LIMIT);
+}
+
+function classifyIdentifier(identifier) {
+  if (Types.ObjectId.isValid(identifier)) return { mode: 'objectId', value: identifier };
+  const asNumber = Number(identifier);
+  if (Number.isInteger(asNumber) && asNumber > 0) return { mode: 'index', value: asNumber };
+  return { mode: 'invalid' };
+}
+
+async function fetchByIdentifier({ Model, identifier, select, sortField, lean = true }) {
+  const classification = classifyIdentifier(identifier);
+  if (classification.mode === 'invalid') {
+    return { error: 'Identifier must be a Mongo ObjectId or a positive integer index.' };
+  }
+
+  if (classification.mode === 'objectId') {
+    let query = Model.findById(classification.value);
+    if (select) query = query.select(select);
+    if (lean) query = query.lean({ virtuals: true });
+    const doc = await query.exec();
+    return { doc };
+  }
+
+  let query = Model.find()
+    .sort({ [sortField]: 1, _id: 1 })
+    .skip(classification.value - 1)
+    .limit(1);
+  if (select) query = query.select(select);
+  if (lean) query = query.lean({ virtuals: true });
+  const docs = await query.exec();
+  return { doc: docs[0], usedIndex: true };
+}
+
+async function queryUserByPublicId(value, { select, lean = true } = {}) {
+  if (!value) return null;
+  let query = User.findOne({ publicId: value });
+  if (select) query = query.select(select);
+  if (lean) query = query.lean({ virtuals: true });
+  return query.exec();
+}
+
+async function resolveUserByIdentifier(identifier, { select, lean = true } = {}) {
+  const normalized = normalizeId(identifier);
+  if (!normalized) return { error: 'Identifier must be provided' };
+
+  const byPublicId = await queryUserByPublicId(normalized, { select, lean });
+  if (byPublicId) return { doc: byPublicId };
+
+  return fetchByIdentifier({
+    Model: User,
+    identifier: normalized,
+    select,
+    sortField: 'fechaRegistro',
+    lean
+  });
+}
+
+// Users listing available at /users?limit=10
+router.get('/users', async (req, res) => {
+  try {
+    const limit = parseLimit(req.query.limit);
+    const users = await User.find()
+      .select(SAFE_USER_FIELDS)
+      .sort({ fechaRegistro: -1, _id: -1 })
+      .limit(limit)
+      .lean({ virtuals: true });
+    res.json(users.map(sanitizeUser));
+  } catch (err) {
+    console.error('Public users list failed:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /users - create a new user document
+router.post('/users', async (req, res) => {
+  try {
+    const nombre = (req.body.nombre || '').trim();
+    const email = (req.body.email || '').trim().toLowerCase();
+    const password = req.body.password;
+    const requestedId = normalizeId(req.body.id);
+
+    if (!nombre || !email || !password || !requestedId) {
+      return res.status(400).json({ error: 'id, nombre, email, and password are required' });
+    }
+
+    const existing = await User.findOne({ email });
+    if (existing) {
+      return res.status(409).json({ error: 'Email already registered' });
+    }
+
+    const idExists = await User.findOne({ publicId: requestedId }).select('_id');
+    if (idExists) {
+      return res.status(409).json({ error: 'id already registered' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(password, salt);
+
+    const newUser = new User({
+      publicId: requestedId,
+      nombre,
+      apellido: req.body.apellido,
+      email,
+      passwordHash,
+      telefono: req.body.telefono,
+      cedula: req.body.cedula,
+      photo: req.body.photo,
+      isAdmin: TRUE_FLAG_VALUES.has(req.body.isAdmin)
+    });
+
+    const saved = await newUser.save();
+    res.status(201).json(sanitizeUser(saved));
+  } catch (err) {
+    console.error('Public user create failed:', err);
+    res.status(400).json({ error: 'Invalid user payload' });
+  }
+});
+
+// Support /users/:identifier where identifier matches id, ObjectId, or 1-based index
+router.get('/users/:identifier', async (req, res) => {
+  try {
+    const { doc, error } = await resolveUserByIdentifier(req.params.identifier, {
+      select: SAFE_USER_FIELDS,
+      lean: true
+    });
+
+    if (error) return res.status(400).json({ error });
+    if (!doc) return res.status(404).json({ error: 'User not found' });
+    res.json(sanitizeUser(doc));
+  } catch (err) {
+    console.error('Public user lookup failed:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PUT /users/:identifier - update existing user by ObjectId or index
+router.put('/users/:identifier', async (req, res) => {
+  try {
+    const { doc, error } = await resolveUserByIdentifier(req.params.identifier, {
+      select: '_id publicId',
+      lean: false
+    });
+
+    if (error) return res.status(400).json({ error });
+    if (!doc) return res.status(404).json({ error: 'User not found' });
+
+    const updates = {};
+    const fieldsToTrim = ['nombre', 'apellido', 'telefono', 'cedula', 'photo'];
+    fieldsToTrim.forEach((field) => {
+      if (Object.prototype.hasOwnProperty.call(req.body, field)) {
+        const value = req.body[field] == null ? '' : String(req.body[field]).trim();
+        updates[field] = value;
+      }
+    });
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'email')) {
+      const email = String(req.body.email || '').trim().toLowerCase();
+      if (!email) return res.status(400).json({ error: 'Email cannot be empty' });
+      const emailOwner = await User.findOne({ email, _id: { $ne: doc._id } }).select('_id');
+      if (emailOwner) return res.status(409).json({ error: 'Email already registered' });
+      updates.email = email;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'id')) {
+      const newId = normalizeId(req.body.id);
+      if (!newId) return res.status(400).json({ error: 'id cannot be empty' });
+      const idOwner = await User.findOne({ publicId: newId, _id: { $ne: doc._id } }).select('_id');
+      if (idOwner) return res.status(409).json({ error: 'id already registered' });
+      updates.publicId = newId;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'isAdmin')) {
+      updates.isAdmin = TRUE_FLAG_VALUES.has(req.body.isAdmin);
+    }
+
+    if (req.body.password) {
+      const salt = await bcrypt.genSalt(10);
+      updates.passwordHash = await bcrypt.hash(req.body.password, salt);
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No updatable fields provided' });
+    }
+
+    updates.fechaModificacion = new Date();
+
+    const updated = await User.findByIdAndUpdate(doc._id, { $set: updates }, { new: true, runValidators: true });
+    res.json(sanitizeUser(updated));
+  } catch (err) {
+    console.error('Public user update failed:', err);
+    res.status(400).json({ error: 'Invalid update payload' });
+  }
+});
+
+// DELETE /users/:identifier - delete user by ObjectId or index
+router.delete('/users/:identifier', async (req, res) => {
+  try {
+    const { doc, error } = await resolveUserByIdentifier(req.params.identifier, {
+      select: '_id',
+      lean: false
+    });
+
+    if (error) return res.status(400).json({ error });
+    if (!doc) return res.status(404).json({ error: 'User not found' });
+
+    await User.findByIdAndDelete(doc._id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Public user delete failed:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Products listing available at /products?limit=12
+router.get('/products', async (req, res) => {
+  try {
+    const limit = parseLimit(req.query.limit);
+    const products = await Product.find()
+      .sort({ fechaCreacion: -1, _id: -1 })
+      .limit(limit)
+      .lean();
+    res.json(products);
+  } catch (err) {
+    console.error('Public products list failed:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Support /products/:identifier similar to users route
+router.get('/products/:identifier', async (req, res) => {
+  try {
+    const { doc, error } = await fetchByIdentifier({
+      Model: Product,
+      identifier: req.params.identifier,
+      select: undefined,
+      sortField: 'fechaCreacion'
+    });
+
+    if (error) return res.status(400).json({ error });
+    if (!doc) return res.status(404).json({ error: 'Product not found' });
+    res.json(doc);
+  } catch (err) {
+    console.error('Public product lookup failed:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+module.exports = router;
