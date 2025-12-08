@@ -5,6 +5,7 @@ const User = require('../models/User');
 const Product = require('../models/Product');
 const Review = require('../models/Review');
 const Order = require('../models/Order');
+const Supplier = require('../models/Supplier');
 
 const router = express.Router();
 const SAFE_USER_FIELDS = '-passwordHash -emailVerificationToken -emailVerificationExpires';
@@ -705,6 +706,142 @@ router.delete('/orders/:identifier', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('Public order delete failed:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Suppliers listing available at /supplier or /suppliers
+router.get(['/supplier', '/suppliers'], async (req, res) => {
+  try {
+    const limit = parseLimit(req.query.limit);
+    const suppliers = await Supplier.find()
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(limit)
+      .lean();
+    res.json(suppliers);
+  } catch (err) {
+    console.error('Public suppliers list failed:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /supplier (alias /suppliers) - create a new supplier
+router.post(['/supplier', '/suppliers'], async (req, res) => {
+  try {
+    const proveedor = (req.body.proveedor || '').trim();
+
+    if (!proveedor) {
+      return res.status(400).json({ error: 'proveedor is required' });
+    }
+
+    const newSupplier = new Supplier({
+      proveedor,
+      contacto: req.body.contacto,
+      celular: req.body.celular,
+      categorias: Array.isArray(req.body.categorias) ? req.body.categorias : [],
+      rating: req.body.rating ? Number(req.body.rating) : 0,
+      pedidos: req.body.pedidos ? Number(req.body.pedidos) : 0
+    });
+
+    const saved = await newSupplier.save();
+    res.status(201).json(saved);
+  } catch (err) {
+    console.error('Public supplier create failed:', err);
+    res.status(400).json({ error: 'Invalid supplier payload' });
+  }
+});
+
+// GET /supplier/:identifier (alias /suppliers/:identifier)
+router.get(['/supplier/:identifier', '/suppliers/:identifier'], async (req, res) => {
+  try {
+    const { doc, error } = await fetchByIdentifier({
+      Model: Supplier,
+      identifier: req.params.identifier,
+      select: undefined,
+      sortField: 'createdAt',
+      lean: true
+    });
+
+    if (error) return res.status(400).json({ error });
+    if (!doc) return res.status(404).json({ error: 'Supplier not found' });
+    res.json(doc);
+  } catch (err) {
+    console.error('Public supplier lookup failed:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PUT /supplier/:identifier (alias /suppliers/:identifier)
+router.put(['/supplier/:identifier', '/suppliers/:identifier'], async (req, res) => {
+  try {
+    const { doc, error } = await fetchByIdentifier({
+      Model: Supplier,
+      identifier: req.params.identifier,
+      select: '_id',
+      sortField: 'createdAt',
+      lean: false
+    });
+
+    if (error) return res.status(400).json({ error });
+    if (!doc) return res.status(404).json({ error: 'Supplier not found' });
+
+    const updates = {};
+    const fieldsToTrim = ['proveedor', 'contacto', 'celular'];
+    fieldsToTrim.forEach((field) => {
+      if (Object.prototype.hasOwnProperty.call(req.body, field)) {
+        const value = req.body[field] == null ? '' : String(req.body[field]).trim();
+        updates[field] = value;
+      }
+    });
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'categorias')) {
+      updates.categorias = Array.isArray(req.body.categorias) ? req.body.categorias : [];
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'rating')) {
+      const rating = Number(req.body.rating);
+      if (rating < 0 || rating > 5) {
+        return res.status(400).json({ error: 'rating must be between 0 and 5' });
+      }
+      updates.rating = rating;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'pedidos')) {
+      updates.pedidos = Number(req.body.pedidos) || 0;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No updatable fields provided' });
+    }
+
+    updates.updatedAt = new Date();
+
+    const updated = await Supplier.findByIdAndUpdate(doc._id, { $set: updates }, { new: true, runValidators: true });
+    res.json(updated);
+  } catch (err) {
+    console.error('Public supplier update failed:', err);
+    res.status(400).json({ error: 'Invalid update payload' });
+  }
+});
+
+// DELETE /supplier/:identifier (alias /suppliers/:identifier)
+router.delete(['/supplier/:identifier', '/suppliers/:identifier'], async (req, res) => {
+  try {
+    const { doc, error } = await fetchByIdentifier({
+      Model: Supplier,
+      identifier: req.params.identifier,
+      select: '_id',
+      sortField: 'createdAt',
+      lean: false
+    });
+
+    if (error) return res.status(400).json({ error });
+    if (!doc) return res.status(404).json({ error: 'Supplier not found' });
+
+    await Supplier.findByIdAndDelete(doc._id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Public supplier delete failed:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });

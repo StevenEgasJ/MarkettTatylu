@@ -18,6 +18,8 @@ const categoriesRouter = require('./routes/categories');
 const publicRouter = require('./routes/public');
 const Product = require('./models/Product');
 const User = require('./models/User');
+const suppliersRouter = require('./models/Supplier');
+
 const bcrypt = require('bcryptjs');
 
 const app = express();
@@ -78,6 +80,8 @@ app.use('/api/orders', ordersRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/reviews', reviewsRouter);
 app.use('/api/categories', categoriesRouter);
+app.use('/api/suppliers', suppliersRouter);
+
 // Debug routes (only enabled when DEBUG_API=true in env)
 app.use('/api/debug', debugRouter);
 
