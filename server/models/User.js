@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 const userSchema = new mongoose.Schema({
-  id: { type: String, trim: true, unique: true, sparse: true },
+  id: { type: mongoose.Schema.Types.Mixed, unique: true, sparse: true },
   nombre: { type: String, required: true },
   isAdmin: { type: Boolean, default: false },
   apellido: { type: String },

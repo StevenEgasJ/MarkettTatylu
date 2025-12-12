@@ -16,6 +16,7 @@ const usersRouter = require('./routes/users');
 const reviewsRouter = require('./routes/reviews');
 const categoriesRouter = require('./routes/categories');
 const publicRouter = require('./routes/public');
+const reportsRouter = require('./routes/reports');
 const Product = require('./models/Product');
 const User = require('./models/User');
 const suppliersRouter = require('./models/Supplier');
@@ -81,6 +82,7 @@ app.use('/api/users', usersRouter);
 app.use('/api/reviews', reviewsRouter);
 app.use('/api/categories', categoriesRouter);
 app.use('/api/suppliers', suppliersRouter);
+app.use('/reports', reportsRouter);
 
 // Debug routes (only enabled when DEBUG_API=true in env)
 app.use('/api/debug', debugRouter);
