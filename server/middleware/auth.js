@@ -34,10 +34,16 @@ function isAuthenticated(req, res, next) {
     return next();
   }
   
-  return res.status(401).json({ 
-    error: 'Authentication required. Please login with Google.',
-    loginUrl: '/api/public/auth/google'
-  });
+  // Si es una solicitud AJAX o API, devuelve JSON
+  if (req.headers['x-requested-with'] === 'XMLHttpRequest' || req.path.startsWith('/api/')) {
+    return res.status(401).json({ 
+      error: 'Authentication required. Please login with Google.',
+      loginUrl: '/auth/google'
+    });
+  }
+  
+  // Si es una solicitud de página normal, redirige a Google OAuth
+  res.redirect('/auth/google');
 }
 
 function isAdmin(req, res, next) {
@@ -51,10 +57,16 @@ function isAdmin(req, res, next) {
     return next();
   }
   
-  return res.status(403).json({ 
-    error: 'Admin access required',
-    currentUser: req.user ? { email: req.user.email, isAdmin: req.user.isAdmin } : null
-  });
+  // Si es una solicitud AJAX o API, devuelve JSON
+  if (req.headers['x-requested-with'] === 'XMLHttpRequest' || req.path.startsWith('/api/')) {
+    return res.status(403).json({ 
+      error: 'Admin access required',
+      currentUser: req.user ? { email: req.user.email, isAdmin: req.user.isAdmin } : null
+    });
+  }
+  
+  // Si es una solicitud de página normal, redirige a Google OAuth
+  res.redirect('/auth/google');
 }
 
 module.exports = { authMiddleware, isAuthenticated, isAdmin };
