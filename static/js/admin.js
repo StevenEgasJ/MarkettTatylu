@@ -146,6 +146,32 @@ class AdminPanelManager {
         }
     }
 
+    // Prompt the admin to login (returns true if login happened and token is set)
+    async promptAdminLogin() {
+        // If already have an auth token, don't prompt
+        const existingToken = getAuthToken();
+        if (existingToken) return true;
+
+        // Show login modal (this will attempt to create/promote admin and login)
+        this.showLoginModal();
+
+        // Wait for token to be set via the 'auth:token-set' event, with a timeout
+        try {
+            await new Promise((resolve, reject) => {
+                let resolved = false;
+                const onToken = () => { if (!resolved) { resolved = true; try { window.removeEventListener('auth:token-set', onToken); } catch(_){}; resolve(); } };
+                window.addEventListener('auth:token-set', onToken, { once: true });
+                // fallback timeout — give user 10 seconds to login
+                setTimeout(() => { if (!resolved) { resolved = true; try { window.removeEventListener('auth:token-set', onToken); } catch(_){}; reject(new Error('Login timeout')); } }, 10000);
+            });
+            // token set
+            return true;
+        } catch (err) {
+            console.warn('promptAdminLogin: token not set after prompt', err);
+            return false;
+        }
+    }
+
     // Verificar si el admin está logueado
     isAdminLoggedIn() {
         return localStorage.getItem('adminLoggedIn') === 'true';
@@ -882,7 +908,12 @@ class AdminPanelManager {
                 const headers = { 'Content-Type': 'application/json' };
                 if (token) headers['Authorization'] = `Bearer ${token}`;
                 const res = await fetch('/api/orders', { headers });
-                if (!res.ok) throw new Error('Failed fetching orders');
+                if (!res.ok) {
+                    const text = await res.text().catch(()=>null);
+                    const err = new Error(text || res.statusText || `HTTP ${res.status}`);
+                    err.status = res.status;
+                    throw err;
+                }
                 orders = await res.json();
             }
 
@@ -902,6 +933,20 @@ class AdminPanelManager {
             return normalized;
         } catch (err) {
             console.warn('fetchOrders error:', err);
+            const errStr = String(err && (err.message || err));
+            const isAuthError = errStr.toLowerCase().includes('401') || errStr.toLowerCase().includes('invalid token') || (err && err.status && err.status === 401);
+            if (isAuthError) {
+                console.log('fetchOrders: detected auth error, prompting admin to login');
+                try {
+                    const ok = await this.promptAdminLogin();
+                    if (ok) {
+                        const ordersRetry = await this.fetchOrders();
+                        return ordersRetry;
+                    }
+                } catch (e) {
+                    console.warn('fetchOrders: retry after login failed', e);
+                }
+            }
             throw err;
         }
     }
@@ -913,8 +958,16 @@ class AdminPanelManager {
             if (window.api && typeof window.api.getProducts === 'function') {
                 products = await window.api.getProducts();
             } else {
-                const res = await fetch('/api/products');
-                if (!res.ok) throw new Error('Failed fetching products');
+                const token = getAuthToken();
+                const headers = { 'Content-Type': 'application/json' };
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+                const res = await fetch('/api/products', { headers });
+                if (!res.ok) {
+                    const text = await res.text().catch(()=>null);
+                    const err = new Error(text || res.statusText || `HTTP ${res.status}`);
+                    err.status = res.status;
+                    throw err;
+                }
                 products = await res.json();
             }
 
@@ -936,6 +989,24 @@ class AdminPanelManager {
             return normalized;
         } catch (err) {
             console.warn('fetchProducts error:', err);
+            // Detect auth-related errors and prompt admin login once
+            const errStr = String(err && (err.message || err));
+            const isAuthError = errStr.toLowerCase().includes('401') || errStr.toLowerCase().includes('invalid token') || (err && err.status && err.status === 401);
+
+            if (isAuthError) {
+                console.log('fetchProducts: detected auth error, prompting admin to login');
+                try {
+                    const ok = await this.promptAdminLogin();
+                    if (ok) {
+                        // retry once
+                        const productsRetry = await this.fetchProducts();
+                        return productsRetry;
+                    }
+                } catch (e) {
+                    console.warn('fetchProducts: retry after login failed', e);
+                }
+            }
+
             throw err;
         }
     }

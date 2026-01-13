@@ -310,8 +310,8 @@ router.get('/auth/current', (req, res) => {
   res.status(401).json({ error: 'Not authenticated' });
 });
 
-// Products listing - SECURED
-router.get('/products', authMiddleware, async (req, res) => {
+// Products listing - PUBLIC (read-only)
+router.get('/products', async (req, res) => {
   try {
     const limit = parseLimit(req.query.limit);
     const products = await Product.find()
@@ -325,8 +325,8 @@ router.get('/products', authMiddleware, async (req, res) => {
   }
 });
 
-    // Support /products/:identifier - SECURED
- router.get('/products/:identifier', authMiddleware, async (req, res) => {
+    // Support /products/:identifier - PUBLIC
+ router.get('/products/:identifier', async (req, res) => {
   try {
     const { doc, error } = await fetchByIdentifier({
       Model: Product,
@@ -465,11 +465,19 @@ router.delete('/products', authMiddleware, async (req, res) => {
   }
 });
 
-// Reviews listing available at /review or /reviews
-router.get(['/review', '/reviews'], authMiddleware, async (req, res) => {
+// Reviews listing available at /review or /reviews (PUBLIC)
+router.get(['/review', '/reviews'], async (req, res) => {
   try {
+    const productId = normalizeId(req.query.productId);
     const limit = parseLimit(req.query.limit);
-    const reviews = await Review.find()
+
+    const query = {};
+    if (productId) {
+      if (!Types.ObjectId.isValid(productId)) return res.status(400).json({ error: 'Invalid productId format' });
+      query.productId = productId;
+    }
+
+    const reviews = await Review.find(query)
       .sort({ createdAt: -1, _id: -1 })
       .limit(limit)
       .lean();
@@ -523,8 +531,8 @@ router.post(['/review', '/reviews'], authMiddleware, async (req, res) => {
   }
 });
 
-// GET /reviews/product/:productId - get all reviews for a specific product
-router.get('/reviews/product/:productId', authMiddleware, async (req, res) => {
+// GET /reviews/product/:productId - get all reviews for a specific product (PUBLIC)
+router.get('/reviews/product/:productId', async (req, res) => {
   try {
     const productId = normalizeId(req.params.productId);
     
