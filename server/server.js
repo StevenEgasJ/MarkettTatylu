@@ -20,7 +20,8 @@ const publicRouter = require('./routes/public');
 const reportsRouter = require('./routes/reports');
 const Product = require('./models/Product');
 const User = require('./models/User');
-const suppliersRouter = require('./models/Supplier');
+// Note: suppliers routes are not implemented yet. The model is available at ./models/Supplier
+// const suppliersRouter = require('../models/Supplier');
 
 const bcrypt = require('bcryptjs');
 
@@ -82,7 +83,8 @@ app.use('/api/orders', ordersRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/reviews', reviewsRouter);
 app.use('/api/categories', categoriesRouter);
-app.use('/api/suppliers', suppliersRouter);
+// suppliers routes not mounted: implement routes in ./server/routes/suppliers.js if needed
+// app.use('/api/suppliers', suppliersRouter);
 app.use('/reports', reportsRouter);
 
 

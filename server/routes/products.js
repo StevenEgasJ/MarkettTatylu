@@ -3,8 +3,8 @@ const router = express.Router();
 const Product = require('../models/Product');
 const { authMiddleware } = require('../middleware/auth');
 
-// GET /api/products - list products
-router.get('/', authMiddleware, async (req, res) => {
+// GET /api/products - list products (public)
+router.get('/', async (req, res) => {
   try {
     const products = await Product.find().sort({ fechaCreacion: -1 });
     res.json(products);
@@ -14,8 +14,8 @@ router.get('/', authMiddleware, async (req, res) => {
   }
 });
 
-// GET /api/products/:id
-router.get('/:id', authMiddleware, async (req, res) => {
+// GET /api/products/:id (public)
+router.get('/:id', async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ error: 'Product not found' });
