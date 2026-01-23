@@ -448,8 +448,9 @@ router.get('/summary/:userId', async (req, res) => {
 // Demonstrates an API that calls other cart APIs internally
 router.post('/microservice-checkout', async (req, res) => {
   try {
-    const port = process.env.PORT || 4000;
-    const baseUrl = `http://localhost:${port}`;
+    const baseUrl = process.env.RENDER_EXTERNAL_URL || process.env.BASE_URL
+       ? (process.env.RENDER_EXTERNAL_URL || process.env.BASE_URL || 'https://supermarkettatylu.onrender.com')
+      : `http://localhost:${process.env.PORT || 4000}`;
     const items = Array.isArray(req.body.items) ? req.body.items : [];
     const promoCode = req.body.promoCode || '';
     const userId = req.body.userId;
@@ -457,7 +458,7 @@ router.post('/microservice-checkout', async (req, res) => {
     if (!items.length) return res.status(400).json({ error: 'No items provided' });
 
     // Step 1: Validate cart items
-    const validateResp = await doFetch(`${baseUrl}/cart/validate`, {
+    const validateResp = await doFetch(`${baseUrl}/api/cart/validate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ items })
@@ -481,7 +482,7 @@ router.post('/microservice-checkout', async (req, res) => {
     }
 
     // Step 2: Apply promotions and calculate totals
-    const promoResp = await doFetch(`${baseUrl}/cart/apply-promotions`, {
+    const promoResp = await doFetch(`${baseUrl}/api/cart/apply-promotions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ items, promoCode })
@@ -495,7 +496,7 @@ router.post('/microservice-checkout', async (req, res) => {
     const promotionResult = await promoResp.json();
 
     // Step 3: Final calculation
-    const calcResp = await doFetch(`${baseUrl}/cart/calculate`, {
+    const calcResp = await doFetch(`${baseUrl}/api/cart/calculate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
@@ -511,6 +512,22 @@ router.post('/microservice-checkout', async (req, res) => {
     }
 
     const calculation = await calcResp.json();
+    // Step 4: Prepare final add to cart
+    for (const item of items) {
+      const addResp = await doFetch(`${baseUrl}/api/cart/quick-add`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          userId, 
+          productId: item.productId, 
+          cantidad: item.cantidad || item.quantity || 1 
+        })
+      });
+      if (!addResp.ok) {
+        const txt = await addResp.text();
+        return res.status(502).json({ error: 'Add to cart service failed', details: txt, failedItem: item.productId });
+      }
+    }
 
     // Prepare checkout data
     const checkoutData = {
@@ -540,7 +557,7 @@ router.post('/microservice-checkout', async (req, res) => {
       checkoutData.readyForPayment = false;
       checkoutData.error = `Minimum order amount is ${BUSINESS_RULES.MIN_ORDER_AMOUNT}`;
     }
-
+ 
     res.json(checkoutData);
   } catch (err) {
     console.error('Error in microservice-checkout:', err);
