@@ -193,4 +193,51 @@ function escapeHtml(unsafe) {
         return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' })[m];
     });
 }
+// ================================
+// LOGIN CON GOOGLE
+// ================================
+async function handleGoogleLogin(response) {
+    try {
+        console.log('[google-login] credential received');
+
+        const googleToken = response.credential;
+
+        const res = await fetch("/auth/google", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: googleToken })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || 'Google login failed');
+        }
+
+        localStorage.setItem('userLoggedIn', 'true');
+        localStorage.setItem('token', data.jwt || '');
+        localStorage.setItem('userEmail', data.user.email);
+        localStorage.setItem('userNombre', data.user.name || data.user.nombre || '');
+        localStorage.setItem('userApellido', data.user.apellido || '');
+        if (data.user.picture) {
+            localStorage.setItem('userPhoto', data.user.picture);
+        }
+
+        await Swal.fire({
+            icon: 'success',
+            title: 'Bienvenido',
+            text: `Hola ${data.user.name || 'usuario'}`
+        });
+
+        window.location.href = 'index.html';
+
+    } catch (err) {
+        console.error('[google-login] error:', err);
+        await Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: 'No se pudo iniciar sesión con Google'
+        });
+    }
+}
 
