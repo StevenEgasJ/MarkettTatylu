@@ -55,6 +55,9 @@ app.use(passport.session());
 
 
 // Routes - Montar directamente en la raíz
+const authRoutes = require('./routes/auth');
+app.use('/api/auth', authRoutes);
+
 const publicRoutes = require('./routes/public');
 app.use('/', publicRoutes);
 

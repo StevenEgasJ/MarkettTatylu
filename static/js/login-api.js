@@ -202,7 +202,7 @@ async function handleGoogleLogin(response) {
 
         const googleToken = response.credential;
 
-        const res = await fetch("/auth/google", {
+        const res = await fetch("/api/auth/google", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ token: googleToken })

@@ -5,6 +5,9 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const User = require('../models/User');
 const { sendMail } = require('../utils/email');
+const { OAuth2Client } = require('google-auth-library');
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
 
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
@@ -141,5 +144,72 @@ router.post('/login', async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
+
+// POST /api/auth/google
+router.post('/google', async (req, res) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ success: false, error: 'Token no recibido' });
+    }
+
+    // Verificar token con Google
+    const ticket = await googleClient.verifyIdToken({
+      idToken: token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+
+    const email = payload.email.toLowerCase();
+    const nombre = payload.given_name || '';
+    const apellido = payload.family_name || '';
+    const photo = payload.picture || '';
+
+    // Buscar usuario existente
+    let user = await User.findOne({ email });
+
+    // Si NO existe, crear usuario Google
+    if (!user) {
+      user = new User({
+        nombre,
+        apellido,
+        email,
+        photo,
+        emailVerified: true, // Google ya verifica el email
+        authProvider: 'google'
+      });
+      await user.save();
+    }
+
+    // Crear JWT
+    const jwtToken = jwt.sign(
+      { id: user._id, email: user.email },
+      process.env.JWT_SECRET || 'devsecret',
+      { expiresIn: '7d' }
+    );
+
+    return res.json({
+      success: true,
+      jwt: jwtToken,
+      user: {
+        id: user._id,
+        email: user.email,
+        nombre: user.nombre,
+        apellido: user.apellido || '',
+        picture: user.photo || ''
+      }
+    });
+
+  } catch (err) {
+    console.error('[auth/google] error:', err);
+    return res.status(401).json({
+      success: false,
+      error: 'Google token inválido'
+    });
+  }
+});
+
 
 module.exports = router;
