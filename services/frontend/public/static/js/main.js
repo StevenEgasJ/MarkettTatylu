@@ -843,7 +843,32 @@ async function agregarAlCarrito(id, nombre, precio, imagen, mililitros) {
     console.log('🛒 agregarAlCarrito called with:', { id, nombre, precio, tipo: typeof id });
     
     // Check if business server is available (required for checkout operations)
-    if (window.__businessUp === false) {
+    // Do a real-time health check, not just rely on cached window.__businessUp
+    let businessAvailable = true;
+    try {
+        const businessHealthCheck = await fetch('/api/health/business', {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+        });
+        if (businessHealthCheck.ok) {
+            try {
+                const data = await businessHealthCheck.json();
+                businessAvailable = data && data.status === 'ok' && data.service === 'backend-business';
+            } catch (parseErr) {
+                businessAvailable = false;
+            }
+        } else {
+            businessAvailable = false;
+        }
+    } catch (error) {
+        businessAvailable = false;
+    }
+    
+    if (!businessAvailable) {
         try {
             if (typeof Swal !== 'undefined') {
                 Swal.fire({

@@ -249,9 +249,33 @@
     // Simple listener to the confirmar-productos link to guard navigation
     const confirmarBtn = document.getElementById('confirmar-productos');
     if (confirmarBtn) {
-      confirmarBtn.addEventListener('click', function(e){
-        // Check if business server is available
-        if (window.__businessUp === false) {
+      confirmarBtn.addEventListener('click', async function(e){
+        // Check if business server is available with real-time health check
+        let businessAvailable = true;
+        try {
+          const businessHealthCheck = await fetch('/api/health/business', {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json, text/plain, */*',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+          });
+          if (businessHealthCheck.ok) {
+            try {
+              const data = await businessHealthCheck.json();
+              businessAvailable = data && data.status === 'ok' && data.service === 'backend-business';
+            } catch (parseErr) {
+              businessAvailable = false;
+            }
+          } else {
+            businessAvailable = false;
+          }
+        } catch (error) {
+          businessAvailable = false;
+        }
+        
+        if (!businessAvailable) {
           e.preventDefault();
           e.stopPropagation();
           try { 
