@@ -32,9 +32,9 @@ server {
     proxy_ssl_name $proxy_host;
   }
 
-  # Orders endpoint -> backend-business
+  # Orders endpoint -> backend-crud (orders are CRUD operations)
   location /api/orders {
-    proxy_pass ${BACKEND_BUSINESS_URL}/api/orders;
+    proxy_pass ${BACKEND_CRUD_URL}/api/orders;
     proxy_http_version 1.1;
     proxy_set_header Host $proxy_host;
     proxy_set_header X-Real-IP $remote_addr;
