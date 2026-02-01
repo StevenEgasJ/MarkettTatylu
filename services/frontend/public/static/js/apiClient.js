@@ -124,8 +124,10 @@
     pingBusiness: async () => {
       try {
         const res = await fetch(API_PREFIX + '/health/business', { method: 'GET' });
+        window.__businessUp = res.ok;
         return res.ok;
       } catch (err) {
+        window.__businessUp = false;
         return false;
       }
     },
@@ -133,8 +135,10 @@
     pingCrud: async () => {
       try {
         const res = await fetch(API_PREFIX + '/health/crud', { method: 'GET' });
+        window.__crudUp = res.ok;
         return res.ok;
       } catch (err) {
+        window.__crudUp = false;
         return false;
       }
     }

@@ -78,11 +78,17 @@ class AdminPanelManager {
 
         // Orders
         try {
-            const orders = await this.fetchOrders();
-            if (orders && orders.length) {
-                // keep server data in-memory only (do NOT persist to localStorage)
-                this._pedidos = orders;
-                console.log('Admin: pedidos cargados desde server (in-memory):', orders.length);
+            // Only try to load orders if CRUD server is confirmed up (based on cached state from previous pings)
+            // This prevents unnecessary failing requests if CRUD is down
+            if (window.__crudUp !== false) {
+                const orders = await this.fetchOrders().catch(err => {
+                    console.warn('fetchOrders failed, skipping order load:', err && err.message ? err.message : err);
+                    return [];
+                });
+                if (orders && orders.length) {
+                    // keep server data in-memory only (do NOT persist to localStorage)
+                    this._pedidos = orders;
+                    console.log('Admin: pedidos cargados desde server (in-memory):', orders.length);
 
                 // For orders missing cliente info but containing userId, try to populate cliente using the
                 // users cache. We wait for fetchUsers() to finish so we avoid firing many per-order
@@ -116,6 +122,7 @@ class AdminPanelManager {
                 }
             } else {
                 console.log('Admin: no se recibieron pedidos desde el server');
+            }
             }
         } catch (err) {
             console.warn('No se pudo cargar pedidos desde server:', err);
@@ -334,52 +341,33 @@ class AdminPanelManager {
             const stock = Number(product.stock) || 0;
             return stock > 0 && stock <= 5;
         });
-        // Desactivar alerta si alguno de los servidores está caído
-        try {
-            const pingUrl = async (url) => {
-                try {
-                    const res = await fetch(url, { method: 'GET' });
-                    return res.ok;
-                } catch (_) {
-                    return false;
-                }
-            };
+        if (lowStockProducts.length === 0) return;
 
-            const businessUp = (window.api && typeof window.api.pingBusiness === 'function')
-                ? await window.api.pingBusiness()
-                : await pingUrl('/api/health/business');
-            const crudUp = (window.api && typeof window.api.pingCrud === 'function')
-                ? await window.api.pingCrud()
-                : await pingUrl('/api/health/crud');
-
-            if (!businessUp || !crudUp) {
-                return;
-            }
-        } catch (e) {
+        // Desactivar alerta si no tenemos confirmación previa de servidores activos
+        // (evita llamar health endpoints al abrir el admin)
+        if (window.__businessUp !== true || window.__crudUp !== true) {
             return;
         }
 
-        if (lowStockProducts.length > 0) {
-            const lowStockList = lowStockProducts.map(product => {
-                const stock = Number(product.stock) || 0;
-                return `<li><strong>${escapeHtml(product.nombre)}</strong>: ${stock} unidades</li>`;
-            }).join('');
+        const lowStockList = lowStockProducts.map(product => {
+            const stock = Number(product.stock) || 0;
+            return `<li><strong>${escapeHtml(product.nombre)}</strong>: ${stock} unidades</li>`;
+        }).join('');
 
-            Swal.fire({
-                title: '⚠️ Alerta de Stock Bajo',
-                html: `
-                    <div class="text-start">
-                        <p>Los siguientes productos tienen stock bajo (5 o menos unidades):</p>
-                        <ul>${lowStockList}</ul>
-                        <p><small class="text-muted">Se recomienda reabastecer estos productos.</small></p>
-                    </div>
-                `,
-                icon: 'warning',
-                confirmButtonText: 'Entendido',
-                toast: false,
-                position: 'center'
-            });
-        }
+        Swal.fire({
+            title: '⚠️ Alerta de Stock Bajo',
+            html: `
+                <div class="text-start">
+                    <p>Los siguientes productos tienen stock bajo (5 o menos unidades):</p>
+                    <ul>${lowStockList}</ul>
+                    <p><small class="text-muted">Se recomienda reabastecer estos productos.</small></p>
+                </div>
+            `,
+            icon: 'warning',
+            confirmButtonText: 'Entendido',
+            toast: false,
+            position: 'center'
+        });
     }
     
     // Cargar pedidos recientes
@@ -1007,7 +995,8 @@ class AdminPanelManager {
                     console.warn('fetchOrders: retry after login failed', e);
                 }
             }
-            throw err;
+            // Return empty array on any error instead of throwing (resilient behavior)
+            return [];
         }
     }
 
@@ -2007,8 +1996,11 @@ class AdminPanelManager {
             try {
                 if (window.api && typeof window.api.updateOrder === 'function') {
                     await window.api.updateOrder(orderId, updatedData);
-                    // Refresh in-memory orders
-                    await this.fetchOrders();
+                    // Refresh in-memory orders (swallow errors to avoid cascading failures)
+                    await this.fetchOrders().catch(err => {
+                        console.warn('fetchOrders failed after invoice save, continuing anyway:', err && err.message ? err.message : err);
+                        return [];
+                    });
                     this.showOrders();
                     Swal.fire({ title: '¡Factura Actualizada!', text: 'Todos los cambios han sido guardados en el servidor', icon: 'success', timer: 2500 });
                 } else {
