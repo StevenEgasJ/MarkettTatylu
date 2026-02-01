@@ -1298,6 +1298,30 @@ async function validateCartProducts() {
       console.log('✅ Cart is empty, no validation needed');
       return true;
     }
+
+    // First, check if the API is available at all
+    let apiAvailable = true;
+    try {
+      const healthCheck = await fetch('/api/health/crud');
+      if (healthCheck.ok) {
+        try {
+          const data = await healthCheck.json();
+          apiAvailable = data && data.status === 'ok' && data.service === 'backend-crud';
+        } catch (parseErr) {
+          apiAvailable = false;
+        }
+      } else {
+        apiAvailable = false;
+      }
+    } catch (error) {
+      apiAvailable = false;
+    }
+
+    // If API is not available, skip validation and keep cart as-is
+    if (!apiAvailable) {
+      console.log('⚠️ API is not available. Skipping product validation. Using cached cart from localStorage.');
+      return true;
+    }
     
     const validationPromises = carrito.map(async (item) => {
       try {

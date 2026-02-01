@@ -222,7 +222,16 @@ class ProductManager {
               for (let i = 0; i < retries; i++) {
                 try {
                   const res = await fetch('/api/health/crud', { method: 'GET' });
-                  if (res.ok) return true;
+                  if (res.ok) {
+                    try {
+                      const data = await res.json();
+                      if (data && data.status === 'ok' && data.service === 'backend-crud') {
+                        return true;
+                      }
+                    } catch (parseErr) {
+                      // Response is not valid JSON
+                    }
+                  }
                 } catch (_) {
                   // Continue to next retry
                 }

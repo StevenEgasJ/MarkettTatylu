@@ -99,6 +99,24 @@
     return ct.includes('application/json') ? res.json() : res.text();
   }
 
+  // Helper function to create fetch options that bypass Cloudflare challenges
+  function getFetchOptionsWithHeaders() {
+    return {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-origin'
+      }
+    };
+  }
+
   window.api = {
     getProducts: () => apiFetch('/products'),
   getCategories: () => apiFetch('/categories'),
@@ -139,9 +157,23 @@
     // Ping specific backends: business and crud (proxied paths)
     pingBusiness: async () => {
       try {
-        const res = await fetch(API_PREFIX + '/health/business', { method: 'GET' });
-        window.__businessUp = res.ok;
-        return res.ok;
+        const options = getFetchOptionsWithHeaders();
+        const res = await fetch(API_PREFIX + '/health/business', options);
+        
+        if (!res.ok) {
+          window.__businessUp = false;
+          return false;
+        }
+        
+        try {
+          const data = await res.json();
+          const isUp = data && data.status === 'ok' && data.service === 'backend-business';
+          window.__businessUp = isUp;
+          return isUp;
+        } catch (parseErr) {
+          window.__businessUp = false;
+          return false;
+        }
       } catch (err) {
         window.__businessUp = false;
         return false;
@@ -152,18 +184,33 @@
       try {
         // Retry logic: try up to 3 times with 1 second delay
         let retries = 3;
-        let lastError = null;
+        const options = getFetchOptionsWithHeaders();
         
         for (let i = 0; i < retries; i++) {
           try {
-            const res = await fetch(API_PREFIX + '/health/crud', { method: 'GET' });
-            if (res.ok) {
-              window.__crudUp = true;
-              return true;
+            const res = await fetch(API_PREFIX + '/health/crud', options);
+            
+            // Check HTTP status is OK
+            if (!res.ok) {
+              // If not the last retry, wait 1 second before retrying
+              if (i < retries - 1) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+              }
+              continue;
             }
-            lastError = new Error(`HTTP ${res.status}`);
+            
+            // Validate response is JSON with status: ok
+            try {
+              const data = await res.json();
+              if (data && data.status === 'ok' && data.service === 'backend-crud') {
+                window.__crudUp = true;
+                return true;
+              }
+            } catch (parseErr) {
+              // Response is not valid JSON, might be Cloudflare challenge
+            }
           } catch (err) {
-            lastError = err;
+            // Network error, continue retrying
           }
           
           // If not the last retry, wait 1 second before retrying
