@@ -1506,6 +1506,15 @@ class AdminPanelManager {
         (async () => {
             Swal.fire({ title: 'Actualizando estado...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
             try {
+                // Validate Business server availability (view only allowed when business is down)
+                const businessUp = (window.api && typeof window.api.pingBusiness === 'function')
+                    ? await window.api.pingBusiness()
+                    : await (async () => { try { const res = await fetch('/api/health/business', { method: 'GET' }); return res.ok; } catch (_) { return false; } })();
+                if (!businessUp) {
+                    Swal.fire({ icon: 'error', title: 'Servidor de negocio caído', text: 'El servidor de negocio está fuera de servicio. No se puede editar el pedido.' });
+                    return;
+                }
+
                 // Validate CRUD server availability
                 const crudUp = (window.api && typeof window.api.pingCrud === 'function')
                     ? await window.api.pingCrud()
@@ -1543,6 +1552,15 @@ class AdminPanelManager {
                 (async () => {
                     Swal.fire({ title: 'Eliminando pedido...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
                     try {
+                        // Validate Business server availability (view only allowed when business is down)
+                        const businessUp = (window.api && typeof window.api.pingBusiness === 'function')
+                            ? await window.api.pingBusiness()
+                            : await (async () => { try { const res = await fetch('/api/health/business', { method: 'GET' }); return res.ok; } catch (_) { return false; } })();
+                        if (!businessUp) {
+                            Swal.fire({ icon: 'error', title: 'Servidor de negocio caído', text: 'El servidor de negocio está fuera de servicio. No se puede editar el pedido.' });
+                            return;
+                        }
+
                         // Validate CRUD server availability
                         const crudUp = (window.api && typeof window.api.pingCrud === 'function')
                             ? await window.api.pingCrud()
@@ -1569,7 +1587,16 @@ class AdminPanelManager {
     }
 
     // Editar factura completa
-    editInvoice(orderId) {
+    async editInvoice(orderId) {
+        // Block editing when business server is down (view-only allowed)
+        const businessUp = (window.api && typeof window.api.pingBusiness === 'function')
+            ? await window.api.pingBusiness()
+            : await (async () => { try { const res = await fetch('/api/health/business', { method: 'GET' }); return res.ok; } catch (_) { return false; } })();
+        if (!businessUp) {
+            Swal.fire('Servidor de negocio caído', 'El servidor de negocio está fuera de servicio. No se puede editar el pedido.', 'error');
+            return;
+        }
+
         // Buscar la orden en la caché en memoria (no usar localStorage)
         const pedidos = this._pedidos || [];
         let order = pedidos.find(o => (o.id || o.numeroOrden) === orderId);
