@@ -9,6 +9,14 @@ const passport = require('./config/passport');
 const { verifyTransporter } = require('./utils/email');
 
 const app = express();
+
+// Crash diagnostics
+process.on('unhandledRejection', (reason) => {
+  console.error('❌ UnhandledRejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('❌ UncaughtException:', err);
+});
 app.use(morgan('tiny'));
 app.use(cors({ origin: process.env.CLIENT_URL || '*', credentials: true }));
 app.use(express.json({ limit: '5mb' }));
@@ -130,4 +138,7 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`✓ backend-crud running on port ${PORT}`));
+const server = app.listen(PORT, () => console.log(`✓ backend-crud running on port ${PORT}`));
+server.on('error', (err) => {
+  console.error('❌ Server listen error:', err);
+});
