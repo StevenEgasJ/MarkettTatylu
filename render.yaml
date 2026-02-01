@@ -2,7 +2,7 @@ services:
   - type: web
     name: market-tatylu-frontend
     env: docker
-    repo: StevenEgasJ/MarketTatylu
+    repo: github.com/StevenEgasJ/MarketTatylu
     branch: main
     dockerfilePath: services/frontend/Dockerfile
     autoDeploy: true
@@ -17,7 +17,7 @@ services:
   - type: web
     name: market-tatylu-backend-crud
     env: docker
-    repo: StevenEgasJ/MarketTatylu
+    repo: github.com/StevenEgasJ/MarketTatylu
     branch: main
     dockerfilePath: services/backend-crud/Dockerfile
     autoDeploy: true
@@ -38,7 +38,7 @@ services:
   - type: web
     name: market-tatylu-backend-business
     env: docker
-    repo: StevenEgasJ/MarketTatylu
+    repo: github.com/StevenEgasJ/MarketTatylu
     branch: main
     dockerfilePath: services/backend-business/Dockerfile
     autoDeploy: true
