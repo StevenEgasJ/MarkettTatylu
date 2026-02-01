@@ -236,45 +236,40 @@ class AdminPanelManager {
                     return false;
                 }
                 
-                // Attempt to create/promote admin in the backend (persist to Mongo Atlas)
+                // Login with admin credentials
                 try {
-                    const payload = { nombre: 'Administrador', email, password };
-                    const res = await fetch('/api/create-admin', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
+                    const loginRes = await fetch('/api/auth/login', { 
+                        method: 'POST', 
+                        headers: { 'Content-Type':'application/json' }, 
+                        body: JSON.stringify({ email, password }) 
                     });
 
-                    if (!res.ok) {
-                        const txt = await res.text().catch(()=>null);
-                        Swal.showValidationMessage('No se pudo crear el administrador: ' + (txt || res.statusText));
+                    if (!loginRes.ok) {
+                        const txt = await loginRes.text().catch(()=>null);
+                        Swal.showValidationMessage('Login falló: ' + (txt || loginRes.statusText));
                         return false;
                     }
 
-                    const body = await res.json();
-                    console.log('Admin create response:', body);
+                    const loginBody = await loginRes.json();
+                    console.log('Admin login response:', loginBody);
 
-                    // Persist admin state locally for UI
-                    localStorage.setItem('adminLoggedIn', 'true');
-                    localStorage.setItem('adminEmail', email);
-
-                    // Attempt to obtain a JWT token by logging in immediately so admin UI actions that require
-                    // Authorization (moderation endpoints) will work without additional prompts.
-                    try {
-                        const loginRes = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ email, password }) });
-                        if (loginRes.ok) {
-                            const loginBody = await loginRes.json();
-                            if (loginBody && loginBody.token) {
-                                try { 
-                                    sessionStorage.setItem('token', loginBody.token);
-                                    // notify other parts of the app that a token is now available
-                                    try { window.dispatchEvent(new Event('auth:token-set')); } catch(e) { /* ignore */ }
-                                } catch(e) { console.warn('Could not set session token', e); }
-                            }
-                        } else {
-                            console.warn('Admin login after create-admin returned', loginRes.status);
+                    if (loginBody && loginBody.token) {
+                        // Persist admin state locally for UI
+                        localStorage.setItem('adminLoggedIn', 'true');
+                        localStorage.setItem('adminEmail', email);
+                        
+                        // Store token in sessionStorage (preferred for admin)
+                        try { 
+                            sessionStorage.setItem('token', loginBody.token);
+                            // notify other parts of the app that a token is now available
+                            try { window.dispatchEvent(new Event('auth:token-set')); } catch(e) { /* ignore */ }
+                        } catch(e) { 
+                            console.warn('Could not set session token', e); 
                         }
-                    } catch(e) { console.warn('Error during admin auto-login:', e); }
+                    } else {
+                        Swal.showValidationMessage('No se recibió token de autenticación');
+                        return false;
+                    }
 
                     return true;
                 } catch (err) {
