@@ -328,19 +328,43 @@ class AdminPanelManager {
     }
 
     // Verificar productos con stock bajo
-    checkLowStock() {
+    async checkLowStock() {
         const productos = this.getProducts();
         const lowStockProducts = productos.filter(product => {
             const stock = Number(product.stock) || 0;
             return stock > 0 && stock <= 5;
         });
-        
+        // Desactivar alerta si alguno de los servidores está caído
+        try {
+            const pingUrl = async (url) => {
+                try {
+                    const res = await fetch(url, { method: 'GET' });
+                    return res.ok;
+                } catch (_) {
+                    return false;
+                }
+            };
+
+            const businessUp = (window.api && typeof window.api.pingBusiness === 'function')
+                ? await window.api.pingBusiness()
+                : await pingUrl('/api/health/business');
+            const crudUp = (window.api && typeof window.api.pingCrud === 'function')
+                ? await window.api.pingCrud()
+                : await pingUrl('/api/health/crud');
+
+            if (!businessUp || !crudUp) {
+                return;
+            }
+        } catch (e) {
+            return;
+        }
+
         if (lowStockProducts.length > 0) {
             const lowStockList = lowStockProducts.map(product => {
                 const stock = Number(product.stock) || 0;
                 return `<li><strong>${escapeHtml(product.nombre)}</strong>: ${stock} unidades</li>`;
             }).join('');
-            
+
             Swal.fire({
                 title: '⚠️ Alerta de Stock Bajo',
                 html: `
@@ -678,7 +702,16 @@ class AdminPanelManager {
 
                 if (window.api && typeof window.api.updateProduct === 'function') {
                     await window.api.updateProduct(id, payload);
-                    await this.loadServerData();
+                    // Refresh only products to avoid failing on other services (e.g., orders)
+                    try {
+                        const products = await this.fetchProducts();
+                        if (products && products.length) {
+                            this._productos = products;
+                            try { this.showProducts(); } catch(e){}
+                        }
+                    } catch (e) {
+                        console.warn('updateProduct: refresh products failed', e);
+                    }
                 } else {
                     throw new Error('API client no disponible');
                 }

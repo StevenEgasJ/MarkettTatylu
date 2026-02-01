@@ -973,7 +973,35 @@
         }
 
         // Inventory Forecast Functions
-        function loadInventoryForecast() {
+        async function loadInventoryForecast() {
+            // Validate business server availability before forecasting
+            const businessUp = (window.api && typeof window.api.pingBusiness === 'function')
+                ? await window.api.pingBusiness()
+                : await (async () => {
+                    try {
+                        const res = await fetch('/api/health/business', { method: 'GET' });
+                        return res.ok;
+                    } catch (_) {
+                        return false;
+                    }
+                })();
+            if (!businessUp) {
+                try {
+                    if (typeof Swal !== 'undefined') {
+                        await Swal.fire({
+                            icon: 'error',
+                            title: 'Servidor de business caído',
+                            text: 'El servidor de business está fuera de servicio. No se puede generar el pronóstico de inventario.'
+                        });
+                    } else {
+                        alert('El servidor de business está fuera de servicio. No se puede generar el pronóstico de inventario.');
+                    }
+                } catch (_) {
+                    alert('El servidor de business está fuera de servicio. No se puede generar el pronóstico de inventario.');
+                }
+                return;
+            }
+
             const forecast = new InventoryForecast();
             const report = forecast.generateForecastReport();
             
