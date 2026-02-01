@@ -14,8 +14,20 @@
     // Prefer sessionStorage (volatile/session-scoped) over localStorage (persistent)
     // This is especially important for admin tokens which should not persist across sessions
     try {
-      return sessionStorage.getItem('token') || localStorage.getItem('token');
+      const sessionToken = sessionStorage.getItem('token');
+      if (sessionToken) {
+        console.log('apiFetch: Token found in sessionStorage');
+        return sessionToken;
+      }
+      const localToken = localStorage.getItem('token');
+      if (localToken) {
+        console.log('apiFetch: Token found in localStorage');
+        return localToken;
+      }
+      console.log('apiFetch: No token found anywhere');
+      return null;
     } catch (e) {
+      console.error('apiFetch: Error accessing sessionStorage:', e);
       return localStorage.getItem('token');
     }
   }
@@ -33,7 +45,11 @@
       }
     }
     const token = getToken();
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    } else {
+      console.warn('apiFetch: No token found in sessionStorage or localStorage');
+    }
 
     // Instrumentation: measure request duration
     const reqKey = `${path}@${Date.now()}`;
