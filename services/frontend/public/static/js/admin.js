@@ -29,6 +29,37 @@ function escapeHtml(text) {
     };
     return String(text).replace(/[&<>"']/g, m => map[m]);
 }
+    // Suppress the specific business-down alert about loading orders on admin entry
+    (function suppressOrdersBusinessAlert(){
+        try {
+            if (typeof Swal === 'undefined' || !Swal.fire) return;
+            const originalFire = Swal.fire.bind(Swal);
+            Swal.fire = function(...args) {
+                try {
+                    // Object signature
+                    if (args[0] && typeof args[0] === 'object') {
+                        const title = String(args[0].title || '');
+                        const text = String(args[0].text || '');
+                        if (title.toLowerCase().includes('servidor de negocio') && text.toLowerCase().includes('cargar los pedidos')) {
+                            return Promise.resolve();
+                        }
+                    }
+
+                    // String signature: Swal.fire(title, text, icon)
+                    if (typeof args[0] === 'string' && typeof args[1] === 'string') {
+                        const title = args[0].toLowerCase();
+                        const text = args[1].toLowerCase();
+                        if (title.includes('servidor de negocio') && text.includes('cargar los pedidos')) {
+                            return Promise.resolve();
+                        }
+                    }
+                } catch (_) { /* ignore */ }
+                return originalFire(...args);
+            };
+        } catch (err) {
+            console.warn('Could not install business alert suppressor:', err);
+        }
+    })();
 
 class AdminPanelManager {
     constructor() {
@@ -326,8 +357,10 @@ class AdminPanelManager {
         const totalSales = pedidos.reduce((sum, order) => sum + (order.totales?.total || 0), 0);
         document.getElementById('totalSales').textContent = `$${totalSales.toFixed(2)}`;
         
-        // Verificar stock bajo y mostrar alertas
-        this.checkLowStock();
+        // Verificar stock bajo y mostrar alertas solo si ambos servidores están activos
+        if (window.__businessUp === true && window.__crudUp === true) {
+            this.checkLowStock();
+        }
         
         // Cargar pedidos recientes
         this.loadRecentOrders();
@@ -680,7 +713,7 @@ class AdminPanelManager {
     }
 
     // Actualizar producto
-    updateProduct(productData) {
+    updateProduct(productData, retrying = false) {
         // Try to update on server first, fallback to localStorage
         (async () => {
             Swal.fire({ title: 'Actualizando producto...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
@@ -724,6 +757,18 @@ class AdminPanelManager {
                 Swal.fire({ title: '¡Producto actualizado!', text: 'El producto ha sido actualizado correctamente', icon: 'success', timer: 2000 });
             } catch (err) {
                 console.error('Error updating product on server:', err);
+                const errStr = String(err && (err.message || err));
+                const isAuthError = errStr.toLowerCase().includes('401') || errStr.toLowerCase().includes('missing auth token') || (err && err.status && err.status === 401);
+                if (isAuthError && !retrying) {
+                    try {
+                        const ok = await this.promptAdminLogin();
+                        if (ok) {
+                            return this.updateProduct(productData, true);
+                        }
+                    } catch (e) {
+                        console.warn('updateProduct: retry after login failed', e);
+                    }
+                }
                 Swal.fire({ title: 'Error', text: 'No se pudo actualizar el producto en el servidor. Asegúrate de que el backend esté activo.', icon: 'error' });
             }
         })();
