@@ -1149,51 +1149,25 @@ function wirePageEvents(){
       // Save and cleanup
       saveOrderToHistory(order);
       
-      // Otorgar puntos de lealtad ANTES de mostrar la factura
-      let loyaltyPointsEarned = null;
+      // Preparar email para showInvoiceSingleton (no persiste aquí, lo hace showFinalInvoice)
       try {
         const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
         const resolvedEmail = localStorage.getItem('userEmail') || currentUser.email || (order && order.cliente && order.cliente.email) || (userData && userData.email) || '';
-        const totalAmount = adjustedTotals.total || 0;
-        const orderId = order.id || order.numeroOrden || serverOrderId || '';
-
+        
         if (resolvedEmail && !localStorage.getItem('userEmail')) {
           try { localStorage.setItem('userEmail', resolvedEmail); } catch(e) {}
         }
-
-        if (resolvedEmail && totalAmount > 0 && typeof loyaltyManager !== 'undefined') {
-          // Verificar si ya otorgamos puntos para esta orden
-          const processedOrders = JSON.parse(localStorage.getItem('loyaltyProcessedOrders') || '[]');
-          if (orderId && processedOrders.includes(orderId)) {
-            // ya procesada
-          } else {
-            const loyaltyResult = loyaltyManager.addPointsForPurchase(resolvedEmail, totalAmount, orderId || undefined);
-
-            if (loyaltyResult.success && loyaltyResult.points > 0) {
-              loyaltyPointsEarned = loyaltyResult.points;
-              order.loyaltyEarned = loyaltyResult.points;
-              
-              // Marcar orden como procesada
-              if (orderId) {
-                processedOrders.push(orderId);
-                localStorage.setItem('loyaltyProcessedOrders', JSON.stringify(processedOrders));
-              }
-            }
-          }
-        }
       } catch (err) {
-        console.warn('No se pudieron otorgar puntos de lealtad:', err);
+        console.warn('Error resolviendo email:', err);
       }
       
+      // showInvoiceSingleton will handle loyalty point calculation and persistence
       try {
-        if (!order.loyaltyEarned) {
-          const totalForPoints = Number(adjustedTotals.total || 0);
-          if (totalForPoints > 0) {
-            order.loyaltyEarned = totalForPoints <= 10 ? 50 : (totalForPoints <= 50 ? 100 : 200);
-          }
-        }
         await window.showInvoiceSingleton(order);
-      } catch(e){}
+      } catch(e) {
+        console.warn('Error showing invoice:', e);
+      }
+      
       localStorage.removeItem('carrito');
       if(typeof actualizarCarritoUI === 'function') actualizarCarritoUI();
 

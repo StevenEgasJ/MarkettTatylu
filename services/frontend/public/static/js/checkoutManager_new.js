@@ -700,76 +700,81 @@ async function showFinalInvoice(order) {
                 // Always compute points for display
                 order.loyaltyEarned = computePointsByTotal(totalAmount);
 
-                if (!resolvedEmail) {
-                    // No email to persist, keep display only
-                    try { if (typeof updateUserInterface === 'function') updateUserInterface(); } catch(e) {}
-                } else {
+                if (resolvedEmail) {
+                    const processedOrders = JSON.parse(localStorage.getItem('loyaltyProcessedOrders') || '[]');
+                    const processedMap = JSON.parse(localStorage.getItem('loyaltyProcessedOrdersMap') || '{}');
 
-                const processedOrders = JSON.parse(localStorage.getItem('loyaltyProcessedOrders') || '[]');
-                const processedMap = JSON.parse(localStorage.getItem('loyaltyProcessedOrdersMap') || '{}');
-
-                if (orderId && processedOrders.includes(orderId)) {
-                    if (processedMap && processedMap[orderId]) {
-                        order.loyaltyEarned = processedMap[orderId];
-                    }
-                } else {
-                    let awardedPoints = 0;
-                    if (typeof loyaltyManager !== 'undefined') {
-                        const loyaltyResult = loyaltyManager.addPointsForPurchase(resolvedEmail, totalAmount, orderId || undefined);
-                        if (loyaltyResult && loyaltyResult.success && loyaltyResult.points > 0) {
-                            awardedPoints = loyaltyResult.points;
+                    if (orderId && processedOrders.includes(orderId)) {
+                        // Ya procesada, usar puntos del mapa
+                        if (processedMap && processedMap[orderId]) {
+                            order.loyaltyEarned = processedMap[orderId];
                         }
-                    }
-
-                    if (!awardedPoints) {
-                        // Fallback: compute and persist points directly in localStorage
-                        awardedPoints = computePointsByTotal(totalAmount);
-                        if (awardedPoints > 0) {
+                    } else {
+                        // Nueva orden, otorgar puntos
+                        let awardedPoints = 0;
+                        
+                        // Intento 1: usar loyaltyManager
+                        if (typeof loyaltyManager !== 'undefined') {
                             try {
-                                const key = `loyalty_${resolvedEmail}`;
-                                const current = JSON.parse(localStorage.getItem(key) || 'null');
-                                const now = new Date().toISOString();
-                                const base = current || {
-                                    email: resolvedEmail,
-                                    points: 0,
-                                    totalPoints: 0,
-                                    tier: 'bronze',
-                                    purchaseCount: 0,
-                                    totalSpent: 0,
-                                    joinDate: now,
-                                    lastPurchase: null,
-                                    history: []
-                                };
-                                base.points += awardedPoints;
-                                base.totalPoints += awardedPoints;
-                                base.purchaseCount += 1;
-                                base.totalSpent += totalAmount;
-                                base.lastPurchase = now;
-                                base.history.push({
-                                    date: now,
-                                    type: 'purchase',
-                                    points: awardedPoints,
-                                    amount: totalAmount,
-                                    orderId: orderId,
-                                    description: `Compra de $${totalAmount.toFixed(2)} (bono de puntos)`
-                                });
-                                localStorage.setItem(key, JSON.stringify(base));
-                            } catch (e) {
-                                console.warn('Fallback loyalty persist failed', e);
+                                const loyaltyResult = loyaltyManager.addPointsForPurchase(resolvedEmail, totalAmount, orderId || undefined);
+                                if (loyaltyResult && loyaltyResult.success && loyaltyResult.points > 0) {
+                                    awardedPoints = loyaltyResult.points;
+                                }
+                            } catch(e) {
+                                console.warn('loyaltyManager.addPointsForPurchase failed:', e);
+                            }
+                        }
+
+                        // Intento 2: fallback directo en localStorage
+                        if (!awardedPoints) {
+                            awardedPoints = computePointsByTotal(totalAmount);
+                            if (awardedPoints > 0) {
+                                try {
+                                    const key = `loyalty_${resolvedEmail}`;
+                                    const current = JSON.parse(localStorage.getItem(key) || 'null');
+                                    const now = new Date().toISOString();
+                                    const base = current || {
+                                        email: resolvedEmail,
+                                        points: 0,
+                                        totalPoints: 0,
+                                        tier: 'bronze',
+                                        purchaseCount: 0,
+                                        totalSpent: 0,
+                                        joinDate: now,
+                                        lastPurchase: null,
+                                        history: []
+                                    };
+                                    base.points += awardedPoints;
+                                    base.totalPoints += awardedPoints;
+                                    base.purchaseCount += 1;
+                                    base.totalSpent += totalAmount;
+                                    base.lastPurchase = now;
+                                    base.history.push({
+                                        date: now,
+                                        type: 'purchase',
+                                        points: awardedPoints,
+                                        amount: totalAmount,
+                                        orderId: orderId,
+                                        description: `Compra de $${totalAmount.toFixed(2)} (bono de puntos)`
+                                    });
+                                    localStorage.setItem(key, JSON.stringify(base));
+                                } catch (e) {
+                                    console.warn('Fallback loyalty persist failed:', e);
+                                }
+                            }
+                        }
+
+                        // Marcar como procesada
+                        if (awardedPoints > 0) {
+                            order.loyaltyEarned = awardedPoints;
+                            if (orderId) {
+                                processedOrders.push(orderId);
+                                localStorage.setItem('loyaltyProcessedOrders', JSON.stringify(processedOrders));
+                                processedMap[orderId] = awardedPoints;
+                                localStorage.setItem('loyaltyProcessedOrdersMap', JSON.stringify(processedMap));
                             }
                         }
                     }
-
-                    if (awardedPoints > 0) {
-                        order.loyaltyEarned = awardedPoints;
-                        if (orderId) {
-                            processedOrders.push(orderId);
-                            localStorage.setItem('loyaltyProcessedOrders', JSON.stringify(processedOrders));
-                            processedMap[orderId] = awardedPoints;
-                            localStorage.setItem('loyaltyProcessedOrdersMap', JSON.stringify(processedMap));
-                        }
-                    }
-                }
                 }
             }
 
