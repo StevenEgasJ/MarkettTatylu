@@ -1141,82 +1141,50 @@ function wirePageEvents(){
         }
       } catch (e) { console.warn('Could not refresh products after server checkout', e); }
 
-      console.log('🔍 DEBUG: About to save order and award points. Order:', order);
-      console.log('🔍 DEBUG: serverOrderId:', serverOrderId);
-      console.log('🔍 DEBUG: adjustedTotals:', adjustedTotals);
-      
       // Save and cleanup
       saveOrderToHistory(order);
       
       // Otorgar puntos de lealtad ANTES de mostrar la factura
       let loyaltyPointsEarned = null;
       try {
-        const userEmail = localStorage.getItem('userEmail');
+        const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+        const resolvedEmail = localStorage.getItem('userEmail') || currentUser.email || (order && order.cliente && order.cliente.email) || (userData && userData.email) || '';
         const totalAmount = adjustedTotals.total || 0;
-        const orderId = order.id || order.numeroOrden;
-        
-        console.log('🎯 Intentando otorgar puntos:', { userEmail, totalAmount, orderId, hasLoyaltyManager: typeof loyaltyManager !== 'undefined' });
-        
-        if (userEmail && totalAmount > 0 && typeof loyaltyManager !== 'undefined') {
+        const orderId = order.id || order.numeroOrden || serverOrderId || '';
+
+        if (resolvedEmail && !localStorage.getItem('userEmail')) {
+          try { localStorage.setItem('userEmail', resolvedEmail); } catch(e) {}
+        }
+
+        if (resolvedEmail && totalAmount > 0 && typeof loyaltyManager !== 'undefined') {
           // Verificar si ya otorgamos puntos para esta orden
           const processedOrders = JSON.parse(localStorage.getItem('loyaltyProcessedOrders') || '[]');
-          if (processedOrders.includes(orderId)) {
-            console.log('⚠️ Puntos ya otorgados para esta orden, saltando...');
+          if (orderId && processedOrders.includes(orderId)) {
+            // ya procesada
           } else {
-            const loyaltyResult = loyaltyManager.addPointsForPurchase(userEmail, totalAmount, orderId);
-            
+            const loyaltyResult = loyaltyManager.addPointsForPurchase(resolvedEmail, totalAmount, orderId || undefined);
+
             if (loyaltyResult.success && loyaltyResult.points > 0) {
-              console.log('✅ Puntos de lealtad otorgados:', loyaltyResult);
               loyaltyPointsEarned = loyaltyResult.points;
+              order.loyaltyEarned = loyaltyResult.points;
               
               // Marcar orden como procesada
-              processedOrders.push(orderId);
-              localStorage.setItem('loyaltyProcessedOrders', JSON.stringify(processedOrders));
-            } else {
-              console.log('❌ No se otorgaron puntos:', loyaltyResult);
+              if (orderId) {
+                processedOrders.push(orderId);
+                localStorage.setItem('loyaltyProcessedOrders', JSON.stringify(processedOrders));
+              }
             }
           }
-        } else {
-          console.log('❌ Requisitos no cumplidos para puntos');
         }
       } catch (err) {
-        console.error('❌ Error al otorgar puntos de lealtad:', err);
+        console.warn('No se pudieron otorgar puntos de lealtad:', err);
       }
       
       try { await window.showInvoiceSingleton(order); } catch(e){}
       localStorage.removeItem('carrito');
       if(typeof actualizarCarritoUI === 'function') actualizarCarritoUI();
-      
-      // Mostrar notificación de puntos DESPUÉS de la factura
-      if (loyaltyPointsEarned && loyaltyPointsEarned > 0) {
-        console.log('🎉 Preparando notificación de puntos:', loyaltyPointsEarned);
-        setTimeout(() => {
-          console.log('🎉 Mostrando notificación de puntos...');
-          Swal.fire({
-            title: '🎉 ¡Felicidades!',
-            html: `
-              <p class="mb-3">Se han agregado <strong style="font-size: 1.5em; color: #28a745;">${loyaltyPointsEarned} puntos</strong> a tu cuenta.</p>
-              <p class="text-muted">Para revisar cuántos puntos acumulados tienes, haz clic aquí:</p>
-            `,
-            icon: 'success',
-            confirmButtonText: 'Ver mis puntos',
-            confirmButtonColor: '#28a745',
-            showCancelButton: true,
-            cancelButtonText: 'Cerrar',
-            allowOutsideClick: false,
-            customClass: {
-              container: 'swal2-center'
-            }
-          }).then((result) => {
-            console.log('Usuario interactuó con notificación:', result);
-            if (result.isConfirmed) {
-              window.location.href = 'profile.html';
-            }
-          });
-        }, 800);
-      } else {
-        console.log('⚠️ No se mostrará notificación, puntos ganados:', loyaltyPointsEarned);
-      }
+
+      try { if (typeof updateUserInterface === 'function') updateUserInterface(); } catch(e) {}
       
       // DO NOT redirect automatically — keep user on the checkout page so they can choose options
       window.__checkoutInProgress = false;
@@ -1238,60 +1206,40 @@ function wirePageEvents(){
   // Otorgar puntos de lealtad ANTES de mostrar la factura
   let loyaltyPointsEarned = null;
   try {
-    const userEmail = localStorage.getItem('userEmail');
+    const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+    const resolvedEmail = localStorage.getItem('userEmail') || currentUser.email || (order && order.cliente && order.cliente.email) || (userData && userData.email) || '';
     const totalAmount = adjustedTotals.total || 0;
-    const orderId = order.id || order.numeroOrden;
-    
-    console.log('🎯 Intentando otorgar puntos (local):', { userEmail, totalAmount, orderId, hasLoyaltyManager: typeof loyaltyManager !== 'undefined' });
-    
-    if (userEmail && totalAmount > 0 && typeof loyaltyManager !== 'undefined') {
+    const orderId = order.id || order.numeroOrden || serverOrderId || '';
+
+    if (resolvedEmail && !localStorage.getItem('userEmail')) {
+      try { localStorage.setItem('userEmail', resolvedEmail); } catch(e) {}
+    }
+
+    if (resolvedEmail && totalAmount > 0 && typeof loyaltyManager !== 'undefined') {
       // Verificar si ya otorgamos puntos para esta orden
       const processedOrders = JSON.parse(localStorage.getItem('loyaltyProcessedOrders') || '[]');
-      if (processedOrders.includes(orderId)) {
-        console.log('⚠️ Puntos ya otorgados para esta orden, saltando...');
+      if (orderId && processedOrders.includes(orderId)) {
+        // ya procesada
       } else {
-        const loyaltyResult = loyaltyManager.addPointsForPurchase(userEmail, totalAmount, orderId);
-        
+        const loyaltyResult = loyaltyManager.addPointsForPurchase(resolvedEmail, totalAmount, orderId || undefined);
+
         if (loyaltyResult.success && loyaltyResult.points > 0) {
-          console.log('✅ Puntos de lealtad otorgados:', loyaltyResult);
           loyaltyPointsEarned = loyaltyResult.points;
+          order.loyaltyEarned = loyaltyResult.points;
           
           // Marcar orden como procesada
-          processedOrders.push(orderId);
-          localStorage.setItem('loyaltyProcessedOrders', JSON.stringify(processedOrders));
-        } else {
-          console.log('❌ No se otorgaron puntos:', loyaltyResult);
+          if (orderId) {
+            processedOrders.push(orderId);
+            localStorage.setItem('loyaltyProcessedOrders', JSON.stringify(processedOrders));
+          }
         }
       }
-    } else {
-      console.log('❌ Requisitos no cumplidos para puntos');
     }
   } catch (err) {
-    console.error('❌ Error al otorgar puntos de lealtad:', err);
+    console.warn('No se pudieron otorgar puntos de lealtad:', err);
   }
-  
-  // Mostrar notificación de puntos después de 800ms
-  if (loyaltyPointsEarned && loyaltyPointsEarned > 0) {
-    setTimeout(() => {
-      Swal.fire({
-        title: '🎉 ¡Felicidades!',
-        html: `
-          <p class="mb-3">Se han agregado <strong style="font-size: 1.5em; color: #28a745;">${loyaltyPointsEarned} puntos</strong> a tu cuenta.</p>
-          <p class="text-muted">Para revisar cuántos puntos acumulados tienes, haz clic aquí:</p>
-        `,
-        icon: 'success',
-        confirmButtonText: 'Ver mis puntos',
-        confirmButtonColor: '#28a745',
-        showCancelButton: true,
-        cancelButtonText: 'Cerrar',
-        allowOutsideClick: false
-      }).then((result) => {
-        if (result.isConfirmed) {
-          window.location.href = 'profile.html';
-        }
-      });
-    }, 800);
-  }
+
+  try { if (typeof updateUserInterface === 'function') updateUserInterface(); } catch(e) {}
   }  // Close handlePlaceOrder
 
   // Intercept interactions on the wrapper so clicking the (disabled) button area

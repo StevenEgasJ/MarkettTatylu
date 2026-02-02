@@ -697,6 +697,12 @@ async function showFinalInvoice(order) {
                     <h5 class="mb-1">Pedido #${order.id}</h5>
                     <small class="text-muted">Procesado el ${new Date(order.fecha).toLocaleString('es-EC')}</small>
                 </div>
+                ${order.loyaltyEarned ? `
+                <div class="alert alert-success text-center mb-3">
+                    <strong>✅ Se han agregado ${order.loyaltyEarned} puntos a tu cuenta</strong><br>
+                    <small class="text-muted">Para revisar cuántos puntos acumulados tienes, <a href="profile.html" class="link-success fw-semibold">haz clic aquí</a>.</small>
+                </div>
+                ` : ''}
                 
                 <h6 class="border-bottom pb-2 mb-3">📋 Resumen de la Compra</h6>
                 <table class="table table-sm table-striped">
@@ -754,10 +760,6 @@ async function showFinalInvoice(order) {
         cancelButtonColor: '#007bff',
         denyButtonColor: '#6c757d',
         width: '800px',
-        customClass: {
-            container: 'swal2-center',
-            popup: 'swal2-center-modal'
-        },
         allowOutsideClick: false,
         preConfirm: () => {
             try {
