@@ -1141,6 +1141,10 @@ function wirePageEvents(){
         }
       } catch (e) { console.warn('Could not refresh products after server checkout', e); }
 
+      console.log('🔍 DEBUG: About to save order and award points. Order:', order);
+      console.log('🔍 DEBUG: serverOrderId:', serverOrderId);
+      console.log('🔍 DEBUG: adjustedTotals:', adjustedTotals);
+      
       // Save and cleanup
       saveOrderToHistory(order);
       
