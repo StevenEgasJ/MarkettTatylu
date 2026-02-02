@@ -1053,8 +1053,13 @@ function wirePageEvents(){
     }catch(e){ }
 
     // Build user data from available persistent info (prefer stored user values).
+    const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+    const resolvedEmail = shipping.email || localStorage.getItem('userEmail') || currentUser.email || '';
+    if (resolvedEmail && !localStorage.getItem('userEmail')) {
+      try { localStorage.setItem('userEmail', resolvedEmail); } catch(e) {}
+    }
     const userData = {
-      email: shipping.email || localStorage.getItem('userEmail') || '',
+      email: resolvedEmail,
       nombre: localStorage.getItem('userNombre') || '',
       apellido: localStorage.getItem('userApellido') || '',
       cedula: localStorage.getItem('userCedula') || ''
@@ -1180,7 +1185,15 @@ function wirePageEvents(){
         console.warn('No se pudieron otorgar puntos de lealtad:', err);
       }
       
-      try { await window.showInvoiceSingleton(order); } catch(e){}
+      try {
+        if (!order.loyaltyEarned) {
+          const totalForPoints = Number(adjustedTotals.total || 0);
+          if (totalForPoints > 0) {
+            order.loyaltyEarned = totalForPoints <= 10 ? 50 : (totalForPoints <= 50 ? 100 : 200);
+          }
+        }
+        await window.showInvoiceSingleton(order);
+      } catch(e){}
       localStorage.removeItem('carrito');
       if(typeof actualizarCarritoUI === 'function') actualizarCarritoUI();
 

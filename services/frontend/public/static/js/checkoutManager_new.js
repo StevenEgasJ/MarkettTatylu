@@ -696,7 +696,15 @@ async function showFinalInvoice(order) {
                 try { localStorage.setItem('userEmail', resolvedEmail); } catch(e) {}
             }
 
-            if (!order.loyaltyEarned && resolvedEmail && totalAmount > 0) {
+            if (!order.loyaltyEarned && totalAmount > 0) {
+                // Always compute points for display
+                order.loyaltyEarned = computePointsByTotal(totalAmount);
+
+                if (!resolvedEmail) {
+                    // No email to persist, keep display only
+                    try { if (typeof updateUserInterface === 'function') updateUserInterface(); } catch(e) {}
+                } else {
+
                 const processedOrders = JSON.parse(localStorage.getItem('loyaltyProcessedOrders') || '[]');
                 const processedMap = JSON.parse(localStorage.getItem('loyaltyProcessedOrdersMap') || '{}');
 
@@ -761,6 +769,7 @@ async function showFinalInvoice(order) {
                             localStorage.setItem('loyaltyProcessedOrdersMap', JSON.stringify(processedMap));
                         }
                     }
+                }
                 }
             }
 

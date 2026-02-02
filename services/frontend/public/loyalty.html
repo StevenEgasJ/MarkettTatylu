@@ -362,7 +362,11 @@
 
         // Cargar datos de lealtad
         function loadLoyaltyData() {
-            const userEmail = localStorage.getItem('userEmail');
+            const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+            const userEmail = localStorage.getItem('userEmail') || currentUser.email || '';
+            if (userEmail && !localStorage.getItem('userEmail')) {
+                try { localStorage.setItem('userEmail', userEmail); } catch(e) {}
+            }
             if (!userEmail) return;
 
             if (loyaltyManager && typeof loyaltyManager.reconcileOrdersFromHistory === 'function') {
