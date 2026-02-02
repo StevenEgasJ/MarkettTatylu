@@ -1824,23 +1824,26 @@ if (typeof window.checkoutManager !== 'undefined' && window.checkoutManager) {
                     if (loyaltyResult.success && loyaltyResult.points > 0) {
                         console.log('✅ Puntos de lealtad otorgados:', loyaltyResult);
                         
-                        // Mostrar notificación de puntos ganados
+                        // Mostrar notificación de puntos ganados en pantalla completa
                         setTimeout(() => {
                             Swal.fire({
-                                title: '🎉 ¡Puntos Ganados!',
+                                title: '🎉 ¡Felicidades!',
                                 html: `
-                                    <p>Has ganado <strong>${loyaltyResult.points} puntos</strong></p>
-                                    <hr>
-                                    <p>Total de puntos: <strong>${loyaltyResult.totalPoints}</strong></p>
-                                    <a href="profile.html" class="btn btn-primary btn-sm mt-2">Ver mi perfil</a>
+                                    <p class="mb-3">Se han agregado <strong style="font-size: 1.5em; color: #28a745;">${loyaltyResult.points} puntos</strong> a tu cuenta.</p>
+                                    <p class="text-muted">Para revisar cuántos puntos acumulados tienes, haz clic aquí:</p>
                                 `,
                                 icon: 'success',
-                                timer: 5000,
-                                toast: true,
-                                position: 'top-end',
-                                showConfirmButton: false
+                                confirmButtonText: 'Ver mis puntos',
+                                confirmButtonColor: '#28a745',
+                                showCancelButton: true,
+                                cancelButtonText: 'Cerrar',
+                                allowOutsideClick: false
+                            }).then((result) => {
+                                if (result.isConfirmed) {
+                                    window.location.href = 'profile.html';
+                                }
                             });
-                        }, 2000);
+                        }, 1500);
                     }
                 }
             } catch (err) {

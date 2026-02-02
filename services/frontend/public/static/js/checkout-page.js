@@ -1146,6 +1146,45 @@ function wirePageEvents(){
       try { await window.showInvoiceSingleton(order); } catch(e){}
       localStorage.removeItem('carrito');
       if(typeof actualizarCarritoUI === 'function') actualizarCarritoUI();
+      
+      // Otorgar puntos de lealtad después de la compra exitosa
+      try {
+        const userEmail = localStorage.getItem('userEmail');
+        const totalAmount = adjustedTotals.total || 0;
+        const orderId = order.id || order.numeroOrden;
+        
+        if (userEmail && totalAmount > 0 && typeof loyaltyManager !== 'undefined') {
+          const loyaltyResult = loyaltyManager.addPointsForPurchase(userEmail, totalAmount, orderId);
+          
+          if (loyaltyResult.success && loyaltyResult.points > 0) {
+            console.log('✅ Puntos de lealtad otorgados:', loyaltyResult);
+            
+            // Mostrar notificación de puntos ganados en pantalla completa
+            setTimeout(() => {
+              Swal.fire({
+                title: '🎉 ¡Felicidades!',
+                html: `
+                  <p class="mb-3">Se han agregado <strong style="font-size: 1.5em; color: #28a745;">${loyaltyResult.points} puntos</strong> a tu cuenta.</p>
+                  <p class="text-muted">Para revisar cuántos puntos acumulados tienes, haz clic aquí:</p>
+                `,
+                icon: 'success',
+                confirmButtonText: 'Ver mis puntos',
+                confirmButtonColor: '#28a745',
+                showCancelButton: true,
+                cancelButtonText: 'Cerrar',
+                allowOutsideClick: false
+              }).then((result) => {
+                if (result.isConfirmed) {
+                  window.location.href = 'profile.html';
+                }
+              });
+            }, 1500);
+          }
+        }
+      } catch (err) {
+        console.warn('No se pudieron otorgar puntos de lealtad:', err);
+      }
+      
       // DO NOT redirect automatically — keep user on the checkout page so they can choose options
       window.__checkoutInProgress = false;
       return;
@@ -1167,13 +1206,44 @@ function wirePageEvents(){
 
   await window.showInvoiceSingleton(order);
 
-  // Clear in-progress guard
-  window.__checkoutInProgress = false;
-
-  // DO NOT redirect automatically — keep user on the checkout page so they can choose options
+  // Otorgar puntos de lealtad después de la compra exitosa
+  try {
+    const userEmail = localStorage.getItem('userEmail');
+    const totalAmount = adjustedTotals.total || 0;
+    const orderId = order.id || order.numeroOrden;
+    
+    if (userEmail && totalAmount > 0 && typeof loyaltyManager !== 'undefined') {
+      const loyaltyResult = loyaltyManager.addPointsForPurchase(userEmail, totalAmount, orderId);
+      
+      if (loyaltyResult.success && loyaltyResult.points > 0) {
+        console.log('✅ Puntos de lealtad otorgados:', loyaltyResult);
+        
+        // Mostrar notificación de puntos ganados en pantalla completa
+        setTimeout(() => {
+          Swal.fire({
+            title: '🎉 ¡Felicidades!',
+            html: `
+              <p class="mb-3">Se han agregado <strong style="font-size: 1.5em; color: #28a745;">${loyaltyResult.points} puntos</strong> a tu cuenta.</p>
+              <p class="text-muted">Para revisar cuántos puntos acumulados tienes, haz clic aquí:</p>
+            `,
+            icon: 'success',
+            confirmButtonText: 'Ver mis puntos',
+            confirmButtonColor: '#28a745',
+            showCancelButton: true,
+            cancelButtonText: 'Cerrar',
+            allowOutsideClick: false
+          }).then((result) => {
+            if (result.isConfirmed) {
+              window.location.href = 'profile.html';
+            }
+          });
+        }, 1500);
+      }
+    }
+  } catch (err) {
+    console.warn('No se pudieron otorgar puntos de lealtad:', err);
   }
 
-  // Helper: show a SweetAlert2 modal listing missing/invalid fields in a friendly way
   function showMissingFieldsNotification(){
     // First, run the inline field-level validation so fields get red outlines and feedback
     showValidationErrors();
