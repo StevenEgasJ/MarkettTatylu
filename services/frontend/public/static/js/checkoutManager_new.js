@@ -676,6 +676,46 @@ async function showFinalInvoice(order) {
     }
     window.__invoiceModalOpen = true;
 
+    // Ensure loyalty points are awarded and available for display
+    try {
+        if (order) {
+            const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+            const resolvedEmail = localStorage.getItem('userEmail') || currentUser.email || (order.cliente && order.cliente.email) || '';
+            const orderId = order.id || order.numeroOrden || order.numeroFactura || '';
+            const totalAmount = (order.totales && order.totales.total) ? Number(order.totales.total) : 0;
+
+            if (resolvedEmail && !localStorage.getItem('userEmail')) {
+                try { localStorage.setItem('userEmail', resolvedEmail); } catch(e) {}
+            }
+
+            if (!order.loyaltyEarned && resolvedEmail && totalAmount > 0 && typeof loyaltyManager !== 'undefined') {
+                const processedOrders = JSON.parse(localStorage.getItem('loyaltyProcessedOrders') || '[]');
+                const processedMap = JSON.parse(localStorage.getItem('loyaltyProcessedOrdersMap') || '{}');
+
+                if (orderId && processedOrders.includes(orderId)) {
+                    if (processedMap && processedMap[orderId]) {
+                        order.loyaltyEarned = processedMap[orderId];
+                    }
+                } else {
+                    const loyaltyResult = loyaltyManager.addPointsForPurchase(resolvedEmail, totalAmount, orderId || undefined);
+                    if (loyaltyResult && loyaltyResult.success && loyaltyResult.points > 0) {
+                        order.loyaltyEarned = loyaltyResult.points;
+                        if (orderId) {
+                            processedOrders.push(orderId);
+                            localStorage.setItem('loyaltyProcessedOrders', JSON.stringify(processedOrders));
+                            processedMap[orderId] = loyaltyResult.points;
+                            localStorage.setItem('loyaltyProcessedOrdersMap', JSON.stringify(processedMap));
+                        }
+                    }
+                }
+            }
+
+            try { if (typeof updateUserInterface === 'function') updateUserInterface(); } catch(e) {}
+        }
+    } catch (e) {
+        console.warn('showFinalInvoice: loyalty calc failed', e);
+    }
+
     const productList = order.productos.map(item => 
         `<tr>
             <td>${item.nombre}</td>
