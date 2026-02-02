@@ -365,6 +365,9 @@
             const userEmail = localStorage.getItem('userEmail');
             if (!userEmail) return;
 
+            if (loyaltyManager && typeof loyaltyManager.reconcileOrdersFromHistory === 'function') {
+                loyaltyManager.reconcileOrdersFromHistory(userEmail);
+            }
             const summary = loyaltyManager.getLoyaltySummary(userEmail);
             
             // Actualizar UI

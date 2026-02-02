@@ -679,6 +679,14 @@ async function showFinalInvoice(order) {
     // Ensure loyalty points are awarded and available for display
     try {
         if (order) {
+            const computePointsByTotal = (amount) => {
+                const total = Number(amount) || 0;
+                if (total <= 0) return 0;
+                if (total <= 10) return 50;
+                if (total <= 50) return 100;
+                return 200;
+            };
+
             const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
             const resolvedEmail = localStorage.getItem('userEmail') || currentUser.email || (order.cliente && order.cliente.email) || '';
             const orderId = order.id || order.numeroOrden || order.numeroFactura || '';
@@ -688,7 +696,7 @@ async function showFinalInvoice(order) {
                 try { localStorage.setItem('userEmail', resolvedEmail); } catch(e) {}
             }
 
-            if (!order.loyaltyEarned && resolvedEmail && totalAmount > 0 && typeof loyaltyManager !== 'undefined') {
+            if (!order.loyaltyEarned && resolvedEmail && totalAmount > 0) {
                 const processedOrders = JSON.parse(localStorage.getItem('loyaltyProcessedOrders') || '[]');
                 const processedMap = JSON.parse(localStorage.getItem('loyaltyProcessedOrdersMap') || '{}');
 
@@ -697,13 +705,59 @@ async function showFinalInvoice(order) {
                         order.loyaltyEarned = processedMap[orderId];
                     }
                 } else {
-                    const loyaltyResult = loyaltyManager.addPointsForPurchase(resolvedEmail, totalAmount, orderId || undefined);
-                    if (loyaltyResult && loyaltyResult.success && loyaltyResult.points > 0) {
-                        order.loyaltyEarned = loyaltyResult.points;
+                    let awardedPoints = 0;
+                    if (typeof loyaltyManager !== 'undefined') {
+                        const loyaltyResult = loyaltyManager.addPointsForPurchase(resolvedEmail, totalAmount, orderId || undefined);
+                        if (loyaltyResult && loyaltyResult.success && loyaltyResult.points > 0) {
+                            awardedPoints = loyaltyResult.points;
+                        }
+                    }
+
+                    if (!awardedPoints) {
+                        // Fallback: compute and persist points directly in localStorage
+                        awardedPoints = computePointsByTotal(totalAmount);
+                        if (awardedPoints > 0) {
+                            try {
+                                const key = `loyalty_${resolvedEmail}`;
+                                const current = JSON.parse(localStorage.getItem(key) || 'null');
+                                const now = new Date().toISOString();
+                                const base = current || {
+                                    email: resolvedEmail,
+                                    points: 0,
+                                    totalPoints: 0,
+                                    tier: 'bronze',
+                                    purchaseCount: 0,
+                                    totalSpent: 0,
+                                    joinDate: now,
+                                    lastPurchase: null,
+                                    history: []
+                                };
+                                base.points += awardedPoints;
+                                base.totalPoints += awardedPoints;
+                                base.purchaseCount += 1;
+                                base.totalSpent += totalAmount;
+                                base.lastPurchase = now;
+                                base.history.push({
+                                    date: now,
+                                    type: 'purchase',
+                                    points: awardedPoints,
+                                    amount: totalAmount,
+                                    orderId: orderId,
+                                    description: `Compra de $${totalAmount.toFixed(2)} (bono de puntos)`
+                                });
+                                localStorage.setItem(key, JSON.stringify(base));
+                            } catch (e) {
+                                console.warn('Fallback loyalty persist failed', e);
+                            }
+                        }
+                    }
+
+                    if (awardedPoints > 0) {
+                        order.loyaltyEarned = awardedPoints;
                         if (orderId) {
                             processedOrders.push(orderId);
                             localStorage.setItem('loyaltyProcessedOrders', JSON.stringify(processedOrders));
-                            processedMap[orderId] = loyaltyResult.points;
+                            processedMap[orderId] = awardedPoints;
                             localStorage.setItem('loyaltyProcessedOrdersMap', JSON.stringify(processedMap));
                         }
                     }
@@ -724,6 +778,7 @@ async function showFinalInvoice(order) {
             <td class="text-end">$${item.subtotal.toFixed(2)}</td>
         </tr>`
     ).join('');
+    const displayPoints = order && order.loyaltyEarned ? order.loyaltyEarned : 0;
     // Show invoice modal but keep it open when the user clicks "Descargar PDF".
     // We use preConfirm to trigger the PDF download and return false so the modal does not close.
     let result;
@@ -737,9 +792,9 @@ async function showFinalInvoice(order) {
                     <h5 class="mb-1">Pedido #${order.id}</h5>
                     <small class="text-muted">Procesado el ${new Date(order.fecha).toLocaleString('es-EC')}</small>
                 </div>
-                ${order.loyaltyEarned ? `
+                ${displayPoints ? `
                 <div class="alert alert-success text-center mb-3">
-                    <strong>✅ Se han agregado ${order.loyaltyEarned} puntos a tu cuenta</strong><br>
+                    <strong>✅ Se han agregado ${displayPoints} puntos a tu cuenta</strong><br>
                     <small class="text-muted">Para revisar cuántos puntos acumulados tienes, <a href="profile.html" class="link-success fw-semibold">haz clic aquí</a>.</small>
                 </div>
                 ` : ''}

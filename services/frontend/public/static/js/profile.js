@@ -78,6 +78,9 @@
         return;
       }
 
+      if (window.loyaltyManager && typeof window.loyaltyManager.reconcileOrdersFromHistory === 'function') {
+        window.loyaltyManager.reconcileOrdersFromHistory(email);
+      }
       const summary = window.loyaltyManager.getLoyaltySummary(email);
       if (!summary) {
         panel.style.display = 'none';

@@ -159,6 +159,51 @@ class LoyaltyManager {
         };
     }
 
+    // Reconciliar puntos usando historial de compras local
+    reconcileOrdersFromHistory(userEmail) {
+        try {
+            if (!userEmail) return { reconciled: 0 };
+
+            const processedOrders = JSON.parse(localStorage.getItem('loyaltyProcessedOrders') || '[]');
+            const processedMap = JSON.parse(localStorage.getItem('loyaltyProcessedOrdersMap') || '{}');
+
+            // Prefer user-specific orders list, fallback to comprasHistorial
+            const userOrders = JSON.parse(localStorage.getItem(`orders_${userEmail}`) || '[]');
+            const globalOrders = JSON.parse(localStorage.getItem('comprasHistorial') || '[]');
+            const orders = (userOrders && userOrders.length) ? userOrders : globalOrders;
+
+            let reconciled = 0;
+
+            (orders || []).forEach(order => {
+                if (!order) return;
+                const oid = order.id || order.numeroOrden || order.numeroFactura || '';
+                const emailMatch = (order.cliente && order.cliente.email) ? String(order.cliente.email) === String(userEmail) : true;
+                if (!emailMatch) return;
+                if (oid && processedOrders.includes(oid)) return;
+
+                const totalAmount = order.totales && typeof order.totales.total !== 'undefined' ? Number(order.totales.total) : 0;
+                if (!totalAmount || totalAmount <= 0) return;
+
+                const result = this.addPointsForPurchase(userEmail, totalAmount, oid || undefined);
+                if (result && result.success && result.points > 0) {
+                    reconciled += 1;
+                    if (oid) {
+                        processedOrders.push(oid);
+                        processedMap[oid] = result.points;
+                    }
+                }
+            });
+
+            localStorage.setItem('loyaltyProcessedOrders', JSON.stringify(processedOrders));
+            localStorage.setItem('loyaltyProcessedOrdersMap', JSON.stringify(processedMap));
+
+            return { reconciled };
+        } catch (e) {
+            console.warn('reconcileOrdersFromHistory failed', e);
+            return { reconciled: 0 };
+        }
+    }
+
     // Determinar el nivel actual basado en puntos totales
     getCurrentTier(totalPoints) {
         for (const [key, tier] of Object.entries(this.tiers)) {
