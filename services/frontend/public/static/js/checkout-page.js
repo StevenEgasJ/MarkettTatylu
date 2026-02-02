@@ -1143,11 +1143,9 @@ function wirePageEvents(){
 
       // Save and cleanup
       saveOrderToHistory(order);
-      try { await window.showInvoiceSingleton(order); } catch(e){}
-      localStorage.removeItem('carrito');
-      if(typeof actualizarCarritoUI === 'function') actualizarCarritoUI();
       
-      // Otorgar puntos de lealtad después de la compra exitosa
+      // Otorgar puntos de lealtad ANTES de mostrar la factura
+      let loyaltyPointsEarned = null;
       try {
         const userEmail = localStorage.getItem('userEmail');
         const totalAmount = adjustedTotals.total || 0;
@@ -1158,31 +1156,38 @@ function wirePageEvents(){
           
           if (loyaltyResult.success && loyaltyResult.points > 0) {
             console.log('✅ Puntos de lealtad otorgados:', loyaltyResult);
-            
-            // Mostrar notificación de puntos ganados en pantalla completa
-            setTimeout(() => {
-              Swal.fire({
-                title: '🎉 ¡Felicidades!',
-                html: `
-                  <p class="mb-3">Se han agregado <strong style="font-size: 1.5em; color: #28a745;">${loyaltyResult.points} puntos</strong> a tu cuenta.</p>
-                  <p class="text-muted">Para revisar cuántos puntos acumulados tienes, haz clic aquí:</p>
-                `,
-                icon: 'success',
-                confirmButtonText: 'Ver mis puntos',
-                confirmButtonColor: '#28a745',
-                showCancelButton: true,
-                cancelButtonText: 'Cerrar',
-                allowOutsideClick: false
-              }).then((result) => {
-                if (result.isConfirmed) {
-                  window.location.href = 'profile.html';
-                }
-              });
-            }, 1500);
+            loyaltyPointsEarned = loyaltyResult.points;
           }
         }
       } catch (err) {
         console.warn('No se pudieron otorgar puntos de lealtad:', err);
+      }
+      
+      try { await window.showInvoiceSingleton(order); } catch(e){}
+      localStorage.removeItem('carrito');
+      if(typeof actualizarCarritoUI === 'function') actualizarCarritoUI();
+      
+      // Mostrar notificación de puntos DESPUÉS de la factura
+      if (loyaltyPointsEarned && loyaltyPointsEarned > 0) {
+        setTimeout(() => {
+          Swal.fire({
+            title: '🎉 ¡Felicidades!',
+            html: `
+              <p class="mb-3">Se han agregado <strong style="font-size: 1.5em; color: #28a745;">${loyaltyPointsEarned} puntos</strong> a tu cuenta.</p>
+              <p class="text-muted">Para revisar cuántos puntos acumulados tienes, haz clic aquí:</p>
+            `,
+            icon: 'success',
+            confirmButtonText: 'Ver mis puntos',
+            confirmButtonColor: '#28a745',
+            showCancelButton: true,
+            cancelButtonText: 'Cerrar',
+            allowOutsideClick: false
+          }).then((result) => {
+            if (result.isConfirmed) {
+              window.location.href = 'profile.html';
+            }
+          });
+        }, 800);
       }
       
       // DO NOT redirect automatically — keep user on the checkout page so they can choose options
@@ -1201,12 +1206,9 @@ function wirePageEvents(){
 
   // Save order locally as backup
   saveOrderToHistory(order);
-  localStorage.removeItem('carrito');
-  if(typeof actualizarCarritoUI === 'function') actualizarCarritoUI();
-
-  await window.showInvoiceSingleton(order);
-
-  // Otorgar puntos de lealtad después de la compra exitosa
+  
+  // Otorgar puntos de lealtad ANTES de mostrar la factura
+  let loyaltyPointsEarned = null;
   try {
     const userEmail = localStorage.getItem('userEmail');
     const totalAmount = adjustedTotals.total || 0;
@@ -1217,33 +1219,39 @@ function wirePageEvents(){
       
       if (loyaltyResult.success && loyaltyResult.points > 0) {
         console.log('✅ Puntos de lealtad otorgados:', loyaltyResult);
-        
-        // Mostrar notificación de puntos ganados en pantalla completa
-        setTimeout(() => {
-          Swal.fire({
-            title: '🎉 ¡Felicidades!',
-            html: `
-              <p class="mb-3">Se han agregado <strong style="font-size: 1.5em; color: #28a745;">${loyaltyResult.points} puntos</strong> a tu cuenta.</p>
-              <p class="text-muted">Para revisar cuántos puntos acumulados tienes, haz clic aquí:</p>
-            `,
-            icon: 'success',
-            confirmButtonText: 'Ver mis puntos',
-            confirmButtonColor: '#28a745',
-            showCancelButton: true,
-            cancelButtonText: 'Cerrar',
-            allowOutsideClick: false
-          }).then((result) => {
-            if (result.isConfirmed) {
-              window.location.href = 'profile.html';
-            }
-          });
-        }, 1500);
+        loyaltyPointsEarned = loyaltyResult.points;
       }
     }
   } catch (err) {
     console.warn('No se pudieron otorgar puntos de lealtad:', err);
   }
+  
+  localStorage.removeItem('carrito');
+  if(typeof actualizarCarritoUI === 'function') actualizarCarritoUI();
 
+  await window.showInvoiceSingleton(order);
+
+  // Mostrar notificación de puntos DESPUÉS de la factura
+  if (loyaltyPointsEarned && loyaltyPointsEarned > 0) {
+    setTimeout(() => {
+      Swal.fire({
+        title: '🎉 ¡Felicidades!',
+        html: `
+          <p class="mb-3">Se han agregado <strong style="font-size: 1.5em; color: #28a745;">${loyaltyPointsEarned} puntos</strong> a tu cuenta.</p>
+          <p class="text-muted">Para revisar cuántos puntos acumulados tienes, haz clic aquí:</p>
+        `,
+        icon: 'success',
+        confirmButtonText: 'Ver mis puntos',
+        confirmButtonColor: '#28a745',
+        showCancelButton: true,
+        cancelButtonText: 'Cerrar',
+        allowOutsideClick: false
+      }).then((result) => {
+        if (result.isConfirmed) {
+          window.location.href = 'profile.html';
+        }
+      });
+    }, 800);
   function showMissingFieldsNotification(){
     // First, run the inline field-level validation so fields get red outlines and feedback
     showValidationErrors();

@@ -45,10 +45,13 @@
   </style>
   <!-- Page-local override: hide SweetAlert2 toast notifications on checkout page
        This prevents the small "Orden guardada" toast from appearing here
-       without modifying any JavaScript logic. -->
+       without modifying any JavaScript logic. But allows normal modals like points notification -->
   <style>
-    /* Hide Swal2 toast containers only on this page */
+    /* Hide Swal2 toast containers only on this page - but allow normal popups */
+    .swal2-container.swal2-top-end { display: none !important; }
     .swal2-container .swal2-toast { display: none !important; }
+    /* Ensure normal modals (center position) are visible */
+    .swal2-container.swal2-center { display: flex !important; }
   </style>
 </head>
 <body>
@@ -212,6 +215,7 @@
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="./static/js/apiClient.js"></script>
   <script src="./static/js/productManager.js"></script>
+  <script src="./static/js/loyaltyManager.js"></script>
   <script src="./static/js/checkoutManager_new.js"></script>
   <script src="./static/js/theme-toggle.js"></script>
   <script src="./static/js/perf/rail.js"></script>
