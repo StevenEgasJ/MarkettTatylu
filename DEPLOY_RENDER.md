@@ -80,6 +80,20 @@ Option B — Static Site (free, simpler)
 - Publish directory: `services/frontend/public`
 - This is free on Render and ideal for purely static HTML/JS sites.
 
+If you deploy as a Static Site on Render (no Docker), the frontend will be served directly from the static host and requests to `/api/*` will go to the frontend domain unless you inject the backend URL at build time. Use one of the options below:
+
+- Quick (recommended): Add `BACKEND_CRUD_URL` and `BACKEND_BUSINESS_URL` as Environment Variables in your Static Site service, and set the **Build Command** to replace the placeholder URL in `index.html` before publish. Example Build Command:
+
+  sh -lc "if [ -n \"$BACKEND_CRUD_URL\" ]; then sed -i 's|https://market-tatylu-backend-crud.onrender.com|$BACKEND_CRUD_URL|g' services/frontend/public/index.html; fi; if [ -n \"$BACKEND_BUSINESS_URL\" ]; then sed -i 's|https://market-tatylu-backend-business.onrender.com|$BACKEND_BUSINESS_URL|g' services/frontend/public/index.html; fi; echo 'build done'"
+
+  - This replaces the inline `window.__API_BASE__` fallback with your real backend URL at build time so the static site will call the backend directly.
+  - Make sure the backend allows CORS for the frontend origin (set `CLIENT_URL` in backend env or allow the frontend domain via `ALLOWED_ORIGINS`).
+
+- Alternative: Switch to the Docker frontend (recommended for production). The Docker-based frontend runs nginx and proxies `/api/*` to the backends using `BACKEND_CRUD_URL` / `BACKEND_BUSINESS_URL`, which avoids exposing backend URLs to the browser and simplifies CORS.
+
+Notes:
+- If you do the build-time replacement, remember to redeploy the Static Site after changing the environment variables so the new backend URLs are embedded in the built assets.
+
 ---
 **Checklist after creation**
 - Confirm both backends respond: `https://<backend-url>/health` → should return JSON `{ status: 'ok' }`.

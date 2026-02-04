@@ -61,6 +61,7 @@ app.use('/api/users', require('./routes/users'));
 app.use('/api/orders', require('./routes/orders'));
 app.use('/api/reviews', require('./routes/reviews'));
 app.use('/api/categories', require('./routes/categories'));
+app.use('/api/cart', require('./routes/cart'));
 app.use('/', require('./routes/public'));
 
 // Health endpoints (support both root /health and proxied /api/health)
