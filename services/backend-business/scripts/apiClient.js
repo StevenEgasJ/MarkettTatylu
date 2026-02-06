@@ -5,8 +5,16 @@
   // - If page was opened via file://, assume a local dev server at http://localhost:4000
   // - Otherwise use a same-origin relative path '/api'.
   const DEFAULT_DEV_SERVER = 'http://localhost:4000';
-  const apiBaseRoot = (window.__API_BASE__ && window.__API_BASE__.trim())
+  const host = (location && location.hostname) ? location.hostname : '';
+  const isLocalHost = host === 'localhost' || host === '127.0.0.1';
+  const rawOverride = (window.__API_BASE__ && window.__API_BASE__.trim())
     ? window.__API_BASE__.replace(/\/$/, '')
+    : '';
+  // Avoid using a remote override when running locally to prevent CORS failures.
+  // Allow local overrides (localhost/127.0.0.1) for dev flexibility.
+  const overrideAllowed = !isLocalHost || /localhost|127\.0\.0\.1/.test(rawOverride);
+  const apiBaseRoot = (rawOverride && overrideAllowed)
+    ? rawOverride
     : (location.protocol === 'file:' ? DEFAULT_DEV_SERVER : '');
   const API_PREFIX = apiBaseRoot ? (apiBaseRoot + '/api') : '/api';
 
@@ -47,24 +55,36 @@
     const token = getToken();
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
+    } else if (options && options.requireAuth) {
+      // Request explicitly requires auth, warn so developers know why it will fail
+      console.warn('apiFetch: No token found in sessionStorage or localStorage (request requires authentication)');
     } else {
-      console.warn('apiFetch: No token found in sessionStorage or localStorage');
+      // For anonymous/public requests, avoid noisy warnings
+      if (console.debug) console.debug('apiFetch: anonymous request (no token)');
     }
 
     // Instrumentation: measure request duration
     const reqKey = `${path}@${Date.now()}`;
     try { if (window.rail && window.rail.metrics && window.rail.metrics.markRequestStart) window.rail.metrics.markRequestStart(reqKey); } catch(e){}
 
-    // Make initial request
+    // Make initial request with retry logic for transient network errors
     let res;
-    try {
-      res = await fetch(API_PREFIX + path, { ...options, headers });
-    } catch (networkErr) {
-      try { if (window.rail && window.rail.metrics && window.rail.metrics.markRequestEnd) window.rail.metrics.markRequestEnd(reqKey, { error: networkErr.message }); } catch(e){}
-      throw networkErr;
+    let attempt = 0;
+    const maxAttempts = 3;
+    while (attempt < maxAttempts) {
+      try {
+        res = await fetch(API_PREFIX + path, { ...options, headers });
+        break; // success or non-network HTTP response
+      } catch (networkErr) {
+        attempt++;
+        try { if (window.rail && window.rail.metrics && window.rail.metrics.markRequestEnd) window.rail.metrics.markRequestEnd(reqKey, { error: networkErr.message }); } catch(e){}
+        if (attempt >= maxAttempts) throw networkErr;
+        // backoff before retry
+        await new Promise(resolve => setTimeout(resolve, 200 * attempt));
+      }
     }
 
-    // If the server rejects due to invalid token, clear saved token and retry once without Authorization
+    // Handle 401 with token: clear token and retry once without Authorization
     if (!res.ok && res.status === 401 && token) {
       try {
         console.warn('apiFetch: 401 received with token present — clearing stored token and retrying without auth');
@@ -84,6 +104,26 @@
       }
       // swap res to retry so below code throws appropriate error
       res = retry;
+    }
+
+    // If response is 304 Not Modified for GETs, try to return cached data when available
+    if (res.status === 304 && (!options.method || options.method.toUpperCase() === 'GET')) {
+      try {
+        const cacheMap = {
+          '/products': 'productos',
+          '/categories': 'categorias',
+          '/orders': 'pedidos'
+        };
+        const cacheKey = cacheMap[path];
+        if (cacheKey) {
+          const cached = localStorage.getItem(cacheKey);
+          if (cached) return JSON.parse(cached);
+        }
+      } catch (e) {
+        // ignore cache parse errors
+      }
+      // As a fallback return empty array for GETs
+      return [];
     }
 
     try { if (window.rail && window.rail.metrics && window.rail.metrics.markRequestEnd) window.rail.metrics.markRequestEnd(reqKey, { status: res.status }); } catch(e){}

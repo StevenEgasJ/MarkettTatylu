@@ -70,15 +70,45 @@ document.addEventListener("DOMContentLoaded", function() {
             return;
         }
 
-        // Admin local shortcut
+        // Admin shortcut: require API login so we get a JWT token
         if (email === 'admin@gmail.com' && password === '123456') {
-            await Swal.fire({ title: '¡Bienvenido Administrador!', text: 'Accediendo al panel de administración...', icon: 'success', confirmButtonText: 'Continuar' });
-            localStorage.setItem('adminLoggedIn', 'true');
-            localStorage.setItem('adminEmail', 'admin@gmail.com');
-            localStorage.setItem('adminName', 'Administrador');
-            localStorage.setItem('loginTimestamp', Date.now().toString());
-            window.location.href = 'admin.html';
-            return;
+            let apiAvailable = false;
+            try {
+                if (window.api && typeof window.api.ping === 'function') {
+                    apiAvailable = await window.api.ping();
+                }
+            } catch (err) {
+                apiAvailable = false;
+            }
+
+            if (!apiAvailable || !window.api || typeof window.api.login !== 'function') {
+                await Swal.fire({ title: 'Servidor no disponible', text: 'Para acceder al panel admin necesitas iniciar el backend. Inicia los servicios e intenta de nuevo.', icon: 'warning', confirmButtonText: 'OK' });
+                return;
+            }
+
+            try {
+                const res = await window.api.login({ email, password });
+                if (res && res.token) {
+                    // Store admin session state + token
+                    localStorage.setItem('adminLoggedIn', 'true');
+                    localStorage.setItem('adminEmail', 'admin@gmail.com');
+                    localStorage.setItem('adminName', 'Administrador');
+                    localStorage.setItem('loginTimestamp', Date.now().toString());
+                    try { sessionStorage.setItem('token', res.token); } catch (e) { localStorage.setItem('token', res.token); }
+                    try { window.dispatchEvent(new Event('auth:token-set')); } catch (e) { /* ignore */ }
+
+                    await Swal.fire({ title: '¡Bienvenido Administrador!', text: 'Accediendo al panel de administración...', icon: 'success', confirmButtonText: 'Continuar' });
+                    window.location.href = 'admin.html';
+                    return;
+                }
+
+                await Swal.fire({ title: 'No se pudo iniciar sesion', text: 'No se recibió token del servidor.', icon: 'error', confirmButtonText: 'OK' });
+                return;
+            } catch (err) {
+                const apiMsg = extractApiError(err) || (err && err.message) || '';
+                await Swal.fire({ title: 'Error de autenticacion', text: apiMsg || 'No se pudo iniciar sesion en el servidor.', icon: 'error', confirmButtonText: 'OK' });
+                return;
+            }
         }
 
         // Check API availability. When reachable, require server-based login (persisted in Atlas).

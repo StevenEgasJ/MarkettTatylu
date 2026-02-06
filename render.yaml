@@ -53,3 +53,5 @@ services:
         value: https://market-tatylu-frontend.onrender.com
       - key: APP_BASE_URL
         value: https://market-tatylu-frontend.onrender.com
+      - key: MONGODB_URI
+        value: mongodb+srv://juhuh3001_db_user:Espe123@cluster0.olchaay.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0

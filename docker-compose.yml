@@ -18,18 +18,20 @@ services:
       - "3001:3001"
     environment:
       - NODE_ENV=development
-      - MONGODB_URI=mongodb://mongo:27017/markettatylu
+      - MONGODB_URI=mongodb+srv://juhuh3001_db_user:Espe123@cluster0.olchaay.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
     depends_on:
       - mongo
     restart: unless-stopped
 
   backend-business:
-    build: ./services/backend-business
+    build:
+      context: .
+      dockerfile: services/backend-business/Dockerfile
     ports:
       - "3002:3002"
     environment:
       - NODE_ENV=development
-      - MONGODB_URI=mongodb://mongo:27017/markettatylu
+      - MONGODB_URI=mongodb+srv://juhuh3001_db_user:Espe123@cluster0.olchaay.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
     depends_on:
       - mongo
     restart: unless-stopped

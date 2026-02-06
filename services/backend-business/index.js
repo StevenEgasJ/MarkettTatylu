@@ -11,6 +11,13 @@ app.use(cors({ origin: process.env.CLIENT_URL || '*', credentials: true }));
 app.use(express.json({ limit: '5mb' }));
 app.set('trust proxy', true);
 
+// Servir los scripts movidos desde `services/backend-business/scripts` como `/static/js/*`
+// Esto permite mantener las referencias existentes en las páginas (./static/js/...).
+const path = require('path');
+const scriptsDir = path.join(__dirname, 'scripts');
+app.use('/static/js', express.static(scriptsDir, { maxAge: '30d' }));
+console.log('-> backend-business: serving script files at /static/js from', scriptsDir);
+
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/markettatylu';
 async function connectWithRetry(uri, attempts = 0) {
   try {
@@ -32,9 +39,12 @@ app.use('/api/checkout', require('./routes/checkout'));
 app.use('/invoice', require('./routes/invoices'));
 app.use('/api/orders', require('./routes/orders'));
 app.use('/reports', require('./routes/reports'));
+app.use('/projections', require('./routes/projections'));
 app.use('/metrics', require('./routes/metrics'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/debug', require('./routes/debug'));
+
+console.log('-> backend-business routes mounted: /reports, /projections');
 
 app.get('/health', (req, res) => res.json({ status: 'ok', service: 'backend-business' }));
 // Also support proxied health path under /api/health for frontend checks

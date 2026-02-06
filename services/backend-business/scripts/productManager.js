@@ -76,8 +76,20 @@ class ProductManager {
                 const isFileProtocol = window.location.protocol === 'file:';
                 
                 if (!isFileProtocol && typeof window.api !== 'undefined' && window.api.getProducts) {
-                    console.debug('📡 loadProducts: intentando sincronizar desde servidor...');
-                    const serverProducts = await window.api.getProducts();
+                    console.debug('📡 loadProducts: attempting to sync from server...');
+                    // retry on transient network errors
+                    let serverProducts = null;
+                    let attempts = 0;
+                    while (attempts < 3) {
+                        try {
+                            serverProducts = await window.api.getProducts();
+                            break;
+                        } catch (err) {
+                            attempts++;
+                            console.warn(`loadProducts: attempt ${attempts} failed:`, err);
+                            if (attempts < 3) await new Promise(r => setTimeout(r, 300 * attempts));
+                        }
+                    }
                     if (serverProducts && serverProducts.length > 0) {
                         console.log(`✅ ${serverProducts.length} productos cargados desde el servidor`);
                         this.products = serverProducts.map(p => {

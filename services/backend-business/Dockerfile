@@ -1,9 +1,9 @@
 FROM node:18-alpine
-WORKDIR /app
-# Copy package files from service directory to ensure correct package.json is used
-COPY services/backend-business/package*.json ./
+# Copy entire repository so local file: dependencies resolve correctly
+COPY . /app
+WORKDIR /app/services/backend-business
+# Install only production dependencies for the service
 RUN npm install --production
-# Copy the service source
-COPY services/backend-business/ ./
+# Ensure code is present (already copied) and expose port
 EXPOSE 3002
 CMD ["npm", "start"]

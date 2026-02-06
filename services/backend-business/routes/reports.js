@@ -9,6 +9,11 @@ const User = require('../models/User');
 const Report = require('../models/Report');
 
 function toNumber(v, fallback = 0) {
+  if (typeof v === 'string') {
+    const cleaned = v.replace(/[^0-9,.-]/g, '').replace(',', '.');
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : fallback;
+  }
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 }
@@ -39,6 +44,74 @@ function startOfMonth(date = new Date()) {
   return d;
 }
 
+function normalizeCategory(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function formatMonthKey(date) {
+  const d = new Date(date);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getIsoWeekKey(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
+  const week1 = new Date(d.getFullYear(), 0, 4);
+  const week = 1 + Math.round(((d - week1) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+  return `${d.getFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+function getPeriodKey(date, groupBy) {
+  if (groupBy === 'day') {
+    const d = new Date(date);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  if (groupBy === 'week') return getIsoWeekKey(date);
+  return formatMonthKey(date);
+}
+
+function computeOrderTotalFromItems(items = [], productMap = null) {
+  let total = 0;
+  for (const item of items) {
+    const qty = toNumber(item.cantidad || item.quantity || item.qty || item.unidades, 0);
+    let unitPrice = toNumber(item.precio || item.unitPrice || item.price || item.precioUnitario || item.precio_unitario || item.unit_price || item.priceUnit, 0);
+    if (unitPrice === 0 && productMap) {
+      const pid = String(item.productId || item.id || item._id || '');
+      const info = productMap.get(pid) || {};
+      if (info.price) unitPrice = toNumber(info.price, 0);
+    }
+    let lineRevenue = toNumber(item.subtotal || item.lineTotal || item.total || item.totalPrice || item.precioTotal || item.precio_total, 0);
+    if (lineRevenue === 0 && unitPrice > 0) lineRevenue = roundMoney(unitPrice * qty);
+    total += lineRevenue;
+  }
+  return roundMoney(total);
+}
+
+async function buildProductMap() {
+  const allProducts = await Product.find({}).lean();
+  const productMap = new Map();
+  for (const p of allProducts) {
+    productMap.set(p._id.toString(), {
+      id: p.id || '',
+      name: p.nombre || p.name || 'Unnamed product',
+      category: p.categoria || p.category || 'otros',
+      price: toNumber(p.precio || p.price, 0)
+    });
+  }
+  return productMap;
+}
+
+async function buildUserMap() {
+  const allUsers = await User.find({}, { nombre: 1, apellido: 1, email: 1 }).lean();
+  const userMap = new Map();
+  for (const u of allUsers) {
+    const fullName = [u.nombre || '', u.apellido || ''].join(' ').trim();
+    userMap.set(u._id.toString(), { name: fullName, email: u.email || '' });
+  }
+  return userMap;
+}
+
 async function buildReportData() {
   const now = new Date();
   const todayStart = startOfDay(now);
@@ -48,85 +121,120 @@ async function buildReportData() {
   const orders = await Order.find({}).lean();
   console.log(`[buildReportData] Found ${orders.length} orders in database`);
 
-  const allProducts = await Product.find({}).lean();
-  const productMap = new Map();
-  for (const p of allProducts) {
-    productMap.set(p._id.toString(), {
-      id: p.id || '',
-      nombre: p.nombre || p.name || 'Producto sin nombre',
-      categoria: p.categoria || p.category || 'otros',
-      precio: toNumber(p.precio || p.price, 0)
-    });
-  }
+  const productMap = await buildProductMap();
 
-  let totalVentas = 0;
-  let totalOrdenes = orders.length;
-  let totalProductosVendidos = 0;
-  let ventasHoy = 0;
-  let ventasSemana = 0;
-  let ventasMes = 0;
-  let ordenesHoy = 0;
-  let ordenesSemana = 0;
-  let ordenesMes = 0;
+  let totalSales = 0;
+  let totalOrders = orders.length;
+  let totalItemsSold = 0;
+  let salesToday = 0;
+  let salesWeek = 0;
+  let salesMonth = 0;
+  let ordersToday = 0;
+  let ordersWeek = 0;
+  let ordersMonth = 0;
 
   const productSales = {};
   const categoryRevenue = {};
 
   for (const order of orders) {
     const orderDate = new Date(order.fecha || order.createdAt || 0);
-    const orderTotal = toNumber(order.resumen?.totales?.total ?? order.totales?.total ?? 0, 0);
+    let orderTotal = toNumber(
+      order.resumen?.totales?.total ??
+      order.resumen?.total ??
+      order.totales?.total ??
+      order.total ??
+      order.totalAmount ??
+      0,
+      0
+    );
 
-    totalVentas += orderTotal;
+    if (orderTotal === 0 && order.resumen) {
+      const resumen = order.resumen || {};
+      const subtotal = toNumber(resumen.subtotal ?? resumen.subTotal ?? 0, 0);
+      const taxes = toNumber(resumen.iva ?? resumen.tax ?? 0, 0);
+      const shipping = toNumber(resumen.envio ?? resumen.shipping ?? 0, 0);
+      const discount = toNumber(resumen.discount ?? 0, 0);
+      if (subtotal || taxes || shipping || discount) {
+        orderTotal = roundMoney(Math.max(0, subtotal + taxes + shipping - discount));
+      }
+    }
+
+    const items = order.resumen?.productos || order.productos || order.items || [];
+    if (orderTotal === 0 && items.length) {
+      orderTotal = computeOrderTotalFromItems(items, productMap);
+    }
+    totalSales += orderTotal;
 
     const isToday = orderDate >= todayStart;
     const isThisWeek = orderDate >= weekStart;
     const isThisMonth = orderDate >= monthStart;
 
-    if (isToday) { ventasHoy += orderTotal; ordenesHoy += 1; }
-    if (isThisWeek) { ventasSemana += orderTotal; ordenesSemana += 1; }
-    if (isThisMonth) { ventasMes += orderTotal; ordenesMes += 1; }
+    if (isToday) { salesToday += orderTotal; ordersToday += 1; }
+    if (isThisWeek) { salesWeek += orderTotal; ordersWeek += 1; }
+    if (isThisMonth) { salesMonth += orderTotal; ordersMonth += 1; }
 
-    const items = order.resumen?.productos || order.productos || order.items || [];
     for (const item of items) {
       const pid = String(item.productId || item.id || item._id || 'unknown');
       const qty = toNumber(item.cantidad || item.quantity, 0);
       const productInfo = productMap.get(pid) || {};
       let unitPrice = toNumber(item.precio || item.unitPrice || item.price, 0);
-      if (unitPrice === 0 && productInfo.precio) unitPrice = toNumber(productInfo.precio, 0);
+      if (unitPrice === 0 && productInfo.price) unitPrice = toNumber(productInfo.price, 0);
       let lineRevenue = toNumber(item.subtotal || item.lineTotal, 0);
       if (lineRevenue === 0 && unitPrice > 0) lineRevenue = roundMoney(unitPrice * qty);
-      const nombre = productInfo.nombre || item.nombre || item.productName || 'Producto desconocido';
+      const name = productInfo.name || item.nombre || item.productName || 'Unknown product';
       const productNumericId = productInfo.id || '';
-      const categoria = productInfo.categoria || item.categoria || item.category || 'otros';
+      const category = productInfo.category || item.categoria || item.category || 'otros';
 
-      totalProductosVendidos += qty;
+      totalItemsSold += qty;
 
       if (!productSales[pid]) {
-        productSales[pid] = { productId: pid, id: productNumericId, nombre, cantidadVendida: 0, ingresos: 0, categoria };
+        productSales[pid] = { productId: pid, id: productNumericId, name, quantity: 0, revenue: 0, category };
       }
-      productSales[pid].cantidadVendida += qty;
-      productSales[pid].ingresos += lineRevenue;
+      productSales[pid].quantity += qty;
+      productSales[pid].revenue += lineRevenue;
 
-      categoryRevenue[categoria] = (categoryRevenue[categoria] || 0) + lineRevenue;
+      categoryRevenue[category] = (categoryRevenue[category] || 0) + lineRevenue;
     }
   }
 
-  const topProductos = Object.values(productSales)
-    .sort((a, b) => b.cantidadVendida - a.cantidadVendida)
+  const topProducts = Object.values(productSales)
+    .sort((a, b) => b.quantity - a.quantity)
     .slice(0, 10)
     .map((p) => ({
       productId: mongoose.Types.ObjectId.isValid(p.productId) ? p.productId : undefined,
       id: p.id || '',
-      nombre: p.nombre,
-      cantidadVendida: p.cantidadVendida,
-      ingresos: roundMoney(p.ingresos)
+      name: p.name,
+      quantity: p.quantity,
+      revenue: roundMoney(p.revenue)
     }));
 
-  const ventasPorCategoria = {};
-  for (const cat of Object.keys(categoryRevenue)) ventasPorCategoria[cat] = roundMoney(categoryRevenue[cat]);
+  const revenueByCategory = {};
+  for (const cat of Object.keys(categoryRevenue)) revenueByCategory[cat] = roundMoney(categoryRevenue[cat]);
 
   return {
-    tipo: 'snapshot', generadoEn: now, periodoInicio: monthStart, periodoFin: now, totalVentas: roundMoney(totalVentas), totalOrdenes, totalProductosVendidos, ventasHoy: roundMoney(ventasHoy), ventasSemana: roundMoney(ventasSemana), ventasMes: roundMoney(ventasMes), ordenesHoy, ordenesSemana, ordenesMes, topProductos, ventasPorCategoria
+    type: 'snapshot',
+    generatedAt: now,
+    periodStart: monthStart,
+    periodEnd: now,
+    totals: {
+      sales: roundMoney(totalSales),
+      orders: totalOrders,
+      itemsSold: totalItemsSold,
+      averageOrderValue: totalOrders ? roundMoney(totalSales / totalOrders) : 0
+    },
+    sales: {
+      today: roundMoney(salesToday),
+      week: roundMoney(salesWeek),
+      month: roundMoney(salesMonth)
+    },
+    orders: {
+      today: ordersToday,
+      week: ordersWeek,
+      month: ordersMonth
+    },
+    topProducts,
+    topCustomers: [],
+    revenueByCategory
   };
 }
 
@@ -230,7 +338,7 @@ router.post('/', authMiddleware, async (req, res) => {
     const reportData = await buildReportData();
 
     if (shouldSave) {
-      const r = new Report({ type: 'snapshot', payload: reportData });
+      const r = new Report({ name: body.name || `snapshot-${Date.now()}`, type: 'snapshot', payload: reportData, language: 'en', createdBy: req.user?.email || '' });
       await r.save();
     }
 
@@ -240,6 +348,264 @@ router.post('/', authMiddleware, async (req, res) => {
     res.status(err.status || 500).json({ error: err.message || 'Report generation failed' });
   } finally {
     if (session) { try { await session.endSession(); } catch (e) { console.warn('Could not end session:', e); } }
+  }
+});
+
+// Create a custom report (accepts filters, name, type)
+router.post('/custom', authMiddleware, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const name = body.name || `custom-${Date.now()}`;
+    const type = body.type || 'custom';
+    const start = body.periodStart ? new Date(body.periodStart) : startOfMonth();
+    const end = body.periodEnd ? new Date(body.periodEnd) : new Date();
+    const status = body.status ? String(body.status).trim() : '';
+    const categoryFilter = normalizeCategory(body.category);
+    const groupBy = ['day', 'week', 'month'].includes(body.groupBy) ? body.groupBy : 'month';
+    const topN = Math.min(Math.max(toNumber(body.topN, 5), 1), 50);
+    const includeTaxes = body.includeTaxes !== false && body.includeTaxes !== 'false';
+    const includeShipping = body.includeShipping !== false && body.includeShipping !== 'false';
+    const minTotal = body.minTotal !== undefined && body.minTotal !== '' ? toNumber(body.minTotal, 0) : null;
+    const maxTotal = body.maxTotal !== undefined && body.maxTotal !== '' ? toNumber(body.maxTotal, 0) : null;
+    const focus = body.focus || (type === 'users' ? 'most_active' : (type === 'products' ? 'top_sold' : 'top_revenue'));
+
+    const dateMatch = { $gte: start, $lte: end };
+    const query = { $and: [{ $or: [{ fecha: dateMatch }, { createdAt: dateMatch }] }] };
+    if (status) query.$and.push({ estado: status });
+
+    const orders = await Order.find(query).lean();
+    const productMap = await buildProductMap();
+    const userMap = await buildUserMap();
+
+    let totalSales = 0;
+    let orderCount = 0;
+    let itemsSold = 0;
+
+    const productSales = {};
+    const categoryRevenue = {};
+    const seriesMap = new Map();
+    const customerStats = {};
+
+    for (const order of orders) {
+      const orderDate = new Date(order.fecha || order.createdAt || 0);
+      const totals = order.resumen?.totales || order.resumen || order.totales || {};
+      const subtotal = toNumber(totals.subtotal, 0);
+      const taxes = toNumber(totals.iva ?? totals.tax, 0);
+      const shipping = toNumber(totals.envio ?? totals.shipping, 0);
+      const discount = toNumber(totals.discount ?? 0, 0);
+      let computedTotal = roundMoney(Math.max(0, subtotal - discount + (includeTaxes ? taxes : 0) + (includeShipping ? shipping : 0)));
+
+      const items = order.resumen?.productos || order.productos || order.items || [];
+      let itemsSoldMatch = 0;
+      let itemsSoldAll = 0;
+      let itemsRevenue = 0;
+      let matchedCategory = !categoryFilter;
+
+      for (const item of items) {
+        const pid = String(item.productId || item.id || item._id || 'unknown');
+        const qty = toNumber(item.cantidad || item.quantity, 0);
+        itemsSoldAll += qty;
+
+        const productInfo = productMap.get(pid) || {};
+        let unitPrice = toNumber(item.precio || item.unitPrice || item.price, 0);
+        if (unitPrice === 0 && productInfo.price) unitPrice = toNumber(productInfo.price, 0);
+        let lineRevenue = toNumber(item.subtotal || item.lineTotal, 0);
+        if (lineRevenue === 0 && unitPrice > 0) lineRevenue = roundMoney(unitPrice * qty);
+
+        const name = productInfo.name || item.nombre || item.productName || 'Unknown product';
+        const productNumericId = productInfo.id || '';
+        const category = productInfo.category || item.categoria || item.category || 'otros';
+        const normalizedCategory = normalizeCategory(category);
+        const matchesCategory = !categoryFilter || normalizedCategory === categoryFilter;
+
+        if (!matchesCategory) continue;
+        matchedCategory = true;
+        itemsSoldMatch += qty;
+        itemsRevenue += lineRevenue;
+
+        if (!productSales[pid]) {
+          productSales[pid] = { productId: pid, id: productNumericId, name, quantity: 0, revenue: 0, category };
+        }
+        productSales[pid].quantity += qty;
+        productSales[pid].revenue += lineRevenue;
+
+        categoryRevenue[category] = (categoryRevenue[category] || 0) + lineRevenue;
+      }
+
+      if (!matchedCategory) continue;
+
+      if (computedTotal === 0 && items.length) {
+        computedTotal = computeOrderTotalFromItems(items, productMap);
+      }
+
+      if (computedTotal === 0) {
+        computedTotal = toNumber(
+          order.resumen?.totales?.total ??
+          order.resumen?.total ??
+          order.totales?.total ??
+          order.total ??
+          order.totalAmount ??
+          0,
+          0
+        );
+      }
+
+      const orderRevenue = categoryFilter ? itemsRevenue : computedTotal;
+      if (minTotal !== null && orderRevenue < minTotal) continue;
+      if (maxTotal !== null && orderRevenue > maxTotal) continue;
+
+      totalSales += orderRevenue;
+      orderCount += 1;
+      itemsSold += categoryFilter ? itemsSoldMatch : itemsSoldAll;
+
+      const userIdKey = order.userId ? String(order.userId) : '';
+      const customerKey = order.resumen?.cliente?.email || order.resumen?.cliente?.id || userIdKey || String(order.user || '');
+      if (customerKey) {
+        if (!customerStats[customerKey]) {
+          const userInfo = userIdKey ? userMap.get(userIdKey) : null;
+          customerStats[customerKey] = {
+            key: customerKey,
+            name: order.resumen?.cliente?.nombre ? `${order.resumen?.cliente?.nombre} ${order.resumen?.cliente?.apellido || ''}`.trim() : (userInfo?.name || ''),
+            email: order.resumen?.cliente?.email || userInfo?.email || '',
+            orders: 0,
+            spent: 0
+          };
+        }
+        customerStats[customerKey].orders += 1;
+        customerStats[customerKey].spent += orderRevenue;
+      }
+
+      const periodKey = getPeriodKey(orderDate, groupBy);
+      const existing = seriesMap.get(periodKey) || { period: periodKey, sales: 0, orders: 0 };
+      existing.sales += orderRevenue;
+      existing.orders += 1;
+      seriesMap.set(periodKey, existing);
+    }
+
+    const topProducts = Object.values(productSales)
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, topN)
+      .map((p) => ({
+        productId: mongoose.Types.ObjectId.isValid(p.productId) ? p.productId : undefined,
+        id: p.id || '',
+        name: p.name,
+        quantity: p.quantity,
+        revenue: roundMoney(p.revenue),
+        category: p.category
+      }));
+
+    const revenueByCategory = {};
+    for (const cat of Object.keys(categoryRevenue)) revenueByCategory[cat] = roundMoney(categoryRevenue[cat]);
+
+    const topCustomers = Object.values(customerStats)
+      .sort((a, b) => b.spent - a.spent)
+      .slice(0, topN)
+      .map((c) => ({
+        name: c.name,
+        email: c.email,
+        orders: c.orders,
+        spent: roundMoney(c.spent)
+      }));
+
+    const timeSeries = Array.from(seriesMap.values())
+      .sort((a, b) => a.period.localeCompare(b.period))
+      .map((row) => ({ period: row.period, sales: roundMoney(row.sales), orders: row.orders }));
+
+    const reportPayload = {
+      type,
+      generatedAt: new Date(),
+      periodStart: start,
+      periodEnd: end,
+      filters: {
+        status: status || 'all',
+        category: categoryFilter || '',
+        minTotal,
+        maxTotal,
+        groupBy,
+        topN,
+        includeTaxes,
+        includeShipping,
+        focus
+      },
+      totals: {
+        sales: roundMoney(totalSales),
+        orders: orderCount,
+        itemsSold,
+        averageOrderValue: orderCount ? roundMoney(totalSales / orderCount) : 0
+      },
+      timeSeries,
+      topProducts,
+      topCustomers,
+      revenueByCategory
+    };
+
+    if (type === 'products') {
+      reportPayload.totals = {
+        itemsSold,
+        sales: roundMoney(totalSales)
+      };
+      reportPayload.topCustomers = [];
+      reportPayload.timeSeries = [];
+    } else if (type === 'users') {
+      reportPayload.totals = {
+        orders: orderCount,
+        sales: roundMoney(totalSales)
+      };
+      reportPayload.topProducts = [];
+      reportPayload.revenueByCategory = {};
+      reportPayload.timeSeries = [];
+    } else if (type === 'sales') {
+      reportPayload.topCustomers = [];
+      reportPayload.revenueByCategory = {};
+    }
+
+    const save = body.save !== false && body.save !== 'false';
+    let savedReport = null;
+    if (save) {
+      const r = new Report({ name, type, payload: reportPayload, language: 'en', createdBy: req.user?.email || '' });
+      await r.save();
+      savedReport = r;
+    }
+
+    res.json({ success: true, report: reportPayload, saved: savedReport });
+  } catch (err) {
+    console.error('Error creating custom report:', err);
+    res.status(500).json({ error: err.message || 'Could not create custom report' });
+  }
+});
+
+// List saved reports
+router.get('/list', authMiddleware, async (req, res) => {
+  try {
+    const list = await Report.find({}).sort({ createdAt: -1 }).lean();
+    res.json({ success: true, reports: list });
+  } catch (err) {
+    console.error('Error listing reports:', err);
+    res.status(500).json({ error: err.message || 'Could not list reports' });
+  }
+});
+
+// Get a single report
+router.get('/:id', authMiddleware, async (req, res) => {
+  try {
+    const r = await Report.findById(req.params.id).lean();
+    if (!r) return res.status(404).json({ error: 'Report not found' });
+    res.json({ success: true, report: r });
+  } catch (err) {
+    console.error('Error getting report:', err);
+    res.status(500).json({ error: err.message || 'Could not get report' });
+  }
+});
+
+// Delete a report
+router.delete('/:id', authMiddleware, async (req, res) => {
+  try {
+    const r = await Report.findByIdAndDelete(req.params.id);
+    if (!r) return res.status(404).json({ error: 'Report not found' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting report:', err);
+    res.status(500).json({ error: err.message || 'Could not delete report' });
   }
 });
 

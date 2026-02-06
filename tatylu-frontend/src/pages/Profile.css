@@ -1,8 +1,0 @@
-.loyalty-panel {
-  background: linear-gradient(135deg, #f3ebe0 0%, #e8ddd0 100%);
-}
-
-/* Dark theme */
-[data-theme="dark"] .loyalty-panel {
-  background: linear-gradient(135deg, #3d3d3d 0%, #2d2d2d 100%);
-}

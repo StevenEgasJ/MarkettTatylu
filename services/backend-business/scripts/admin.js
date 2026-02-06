@@ -554,21 +554,14 @@ class AdminPanelManager {
             
             return `
                 <tr>
-                    <td>${escapeHtml(producto.id)}</td>
-                    <td>
-                        <img src="${escapeHtml(producto.imagen)}" alt="${escapeHtml(producto.nombre)}" 
-                             style="width: 50px; height: 50px; object-fit: cover;" class="rounded">
-                    </td>
-                    <td>${escapeHtml(producto.nombre)}</td>
-                    <td>$${Number(producto.precio || 0).toFixed(2)}</td>
-                    <td>${this.getCategoryName(producto.categoria)}</td>
-                    <td>
-                        <span class="badge ${stockBadgeClass}">
-                            ${stock}
-                        </span>
-                    </td>
-                    <td>
-                        <button class="btn btn-sm btn-outline-primary me-2" data-action="edit-product" data-id="${escapeHtml(producto.id)}" title="Editar producto">
+        tableBody.innerHTML = projectionSales.map(row => {
+            const orders = ordersMap.get(row.month) || 0;
+            return `
+                <tr>
+                    <td>${escapeHtml(row.month || '-')}</td>
+                    <td>$${Number(row.projectedTotal || 0).toFixed(2)}</td>
+                    <td>${Number(orders || 0)}</td>
+                </tr>
                             <i class="fa-solid fa-edit"></i>
                         </button>
                         <button class="btn btn-sm btn-outline-danger" data-action="delete-product" data-id="${escapeHtml(producto.id)}" title="Eliminar producto">
@@ -587,6 +580,8 @@ class AdminPanelManager {
     }
 
     // Obtener nombre de categoría
+        }).join('');
+    }
     getCategoryName(categoria) {
         const categories = {
             'cocina': 'Cocina',
@@ -3162,3 +3157,662 @@ function showProductRegisteredAlert(productData) {
         position: 'top-end'
     });
 }
+
+// --- Reportes y Proyecciones (UI en espanol) ---
+function showReports() {
+    _clearActiveSidebar();
+    const link = document.querySelector('.sidebar .nav-link[onclick^="showReports"]');
+    if (link) link.classList.add('active');
+    _showSectionById('reports-section');
+    loadReports();
+}
+
+async function loadReports() {
+    const container = document.getElementById('reportsList');
+    if (!container) return;
+    container.innerHTML = 'Cargando...';
+    const token = getAuthToken();
+    if (!token) {
+        container.innerHTML = '<div class="alert alert-warning">Debes iniciar sesion como administrador para ver reportes.</div>';
+        return;
+    }
+    try {
+        const res = await fetch('/api/reports/list', { headers: { 'Authorization': 'Bearer ' + token } });
+        if (res.status === 401) {
+            container.innerHTML = '<div class="alert alert-warning">Sesion expirada. Inicia sesion nuevamente.</div>';
+            return;
+        }
+        if (!res.ok) throw new Error('No se pudieron cargar los reportes: ' + res.status);
+        const body = await res.json();
+        const list = body.reports || [];
+        if (list.length === 0) { container.innerHTML = '<div class="text-muted">No hay reportes guardados</div>'; return; }
+        const rows = list.map(r => {
+            const start = r.payload?.periodStart ? new Date(r.payload.periodStart).toLocaleDateString() : '-';
+            const end = r.payload?.periodEnd ? new Date(r.payload.periodEnd).toLocaleDateString() : '-';
+            const period = start === '-' && end === '-' ? '-' : `${start} a ${end}`;
+            return `
+                <tr>
+                    <td>${escapeHtml(r.name || '')}</td>
+                    <td>${escapeHtml(r.type || r.payload?.type || '')}</td>
+                    <td>${escapeHtml(period)}</td>
+                    <td>${new Date(r.createdAt).toLocaleString()}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary me-1" onclick="viewReport('${r._id}')"><i class="fa-solid fa-chart-column"></i></button>
+                        <button class="btn btn-sm btn-outline-success me-1" onclick="downloadReportPdf('${r._id}')"><i class="fa-solid fa-file-pdf"></i></button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteReport('${r._id}')"><i class="fa-solid fa-trash"></i></button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+        container.innerHTML = `
+            <div class="table-responsive">
+            <table class="table table-striped">
+                <thead><tr><th>Nombre</th><th>Tipo</th><th>Periodo</th><th>Creado</th><th>Acciones</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+            </div>
+        `;
+        if (list[0]) {
+            renderReportDetail(list[0]);
+        } else {
+            renderReportDetail(null);
+        }
+    } catch (err) {
+        console.error('loadReports error:', err);
+        container.innerHTML = `<div class="alert alert-danger">No se pudieron cargar los reportes: ${escapeHtml(err.message || err)}</div>`;
+    }
+}
+
+async function generateSnapshotReport() {
+    try {
+        const token = getAuthToken();
+        if (!token) {
+            Swal.fire('Sesion requerida', 'Inicia sesion como administrador para generar reportes.', 'warning');
+            return;
+        }
+        const res = await fetch('/api/reports/', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, { 'Authorization': 'Bearer ' + token }), body: JSON.stringify({ save: true, name: 'snapshot-' + Date.now() }) });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || 'No se pudo generar el resumen');
+        Swal.fire('Listo', 'Resumen generado y guardado', 'success');
+        loadReports();
+    } catch (err) { console.error('generateSnapshotReport error:', err); Swal.fire('Error', 'No se pudo generar el resumen: ' + (err.message || err), 'error'); }
+}
+
+function showCustomReportForm() {
+    const card = document.getElementById('customReportCard');
+    if (!card) return;
+    card.style.display = 'block';
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    try {
+        const today = new Date();
+        const endInput = document.getElementById('crEnd');
+        const startInput = document.getElementById('crStart');
+        if (endInput && !endInput.value) {
+            endInput.value = today.toISOString().slice(0, 10);
+        }
+        if (startInput && !startInput.value) {
+            const startDate = new Date(today);
+            startDate.setMonth(startDate.getMonth() - 5);
+            startInput.value = startDate.toISOString().slice(0, 10);
+        }
+    } catch (e) { }
+}
+
+function hideCustomReportForm() {
+    const card = document.getElementById('customReportCard');
+    if (card) card.style.display = 'none';
+}
+
+function resetCustomReportForm() {
+    const form = document.getElementById('customReportForm');
+    if (form) form.reset();
+}
+
+async function submitCustomReportInline() {
+    const getValue = (id, fallback = '') => {
+        const el = document.getElementById(id);
+        return el ? el.value : fallback;
+    };
+    const getChecked = (id, fallback = false) => {
+        const el = document.getElementById(id);
+        return el ? el.checked : fallback;
+    };
+
+    const type = getValue('crType') || 'sales';
+    let start = getValue('crStart');
+    let end = getValue('crEnd');
+    const today = new Date();
+    if (!end) end = today.toISOString().slice(0, 10);
+    if (!start) {
+        const startDate = new Date(today);
+        startDate.setMonth(startDate.getMonth() - 5);
+        start = startDate.toISOString().slice(0, 10);
+    }
+    const name = getValue('crName') || `Reporte-${type}-${start}-${end}`;
+    if (start && end && new Date(start) > new Date(end)) {
+        Swal.fire('Datos invalidos', 'La fecha de inicio no puede ser mayor que la fecha de fin.', 'warning');
+        return;
+    }
+    const groupBy = getValue('crGroupBy') || 'month';
+    const topN = Number(getValue('crTopN')) || 5;
+    const includeTaxes = true;
+    const includeShipping = true;
+    const save = getChecked('crSave', true);
+    const focus = type === 'users' ? 'most_active' : (type === 'products' ? 'top_sold' : 'top_revenue');
+
+    try {
+        const token = getAuthToken();
+        if (!token) {
+            Swal.fire('Sesion requerida', 'Inicia sesion como administrador para crear reportes.', 'warning');
+            return;
+        }
+        const res = await fetch('/api/reports/custom', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, { 'Authorization': 'Bearer ' + token }), body: JSON.stringify({ name, type, periodStart: start, periodEnd: end, groupBy, topN, includeTaxes, includeShipping, focus, save }) });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || 'No se pudo crear el reporte');
+        Swal.fire('Listo', 'Reporte personalizado creado', 'success');
+        hideCustomReportForm();
+        resetCustomReportForm();
+        loadReports();
+    } catch (err) {
+        Swal.fire('Error', 'No se pudo crear el reporte: ' + (err.message || err), 'error');
+    }
+}
+
+async function viewReport(id) { try { const token = getAuthToken(); if (!token) { Swal.fire('Sesion requerida', 'Inicia sesion como administrador para ver reportes.', 'warning'); return; } const res = await fetch('/api/reports/' + id, { headers: { 'Authorization': 'Bearer ' + token } }); if (!res.ok) throw new Error('No se pudo cargar el reporte'); const body = await res.json(); const r = body.report; window.__lastSelectedReport = r; renderReportDetail(r); } catch (err) { console.error('viewReport error:', err); Swal.fire('Error', 'No se pudo cargar el reporte: ' + (err.message || err), 'error'); } }
+
+async function deleteReport(id) { const ok = await Swal.fire({ title: 'Eliminar reporte?', text: 'Se eliminara el reporte guardado en la base de datos', icon: 'warning', showCancelButton: true }).then(r => r.isConfirmed); if (!ok) return; try { const token = getAuthToken(); if (!token) { Swal.fire('Sesion requerida', 'Inicia sesion como administrador para eliminar reportes.', 'warning'); return; } const res = await fetch('/api/reports/' + id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } }); if (!res.ok) throw new Error('No se pudo eliminar el reporte'); Swal.fire('Eliminado', '', 'success'); loadReports(); } catch (err) { console.error('deleteReport error:', err); Swal.fire('Error', 'No se pudo eliminar el reporte', 'error'); } }
+
+function showFinancialAnalysis() { _clearActiveSidebar(); const link = document.querySelector('.sidebar .nav-link[onclick^="showFinancialAnalysis"]'); if (link) link.classList.add('active'); _showSectionById('financial-section'); loadProjections(); }
+
+async function loadProjections() { const container = document.getElementById('projectionsList'); if (!container) return; container.innerHTML = 'Cargando...'; const token = getAuthToken(); if (!token) { container.innerHTML = '<div class="alert alert-warning">Debes iniciar sesion como administrador para ver proyecciones.</div>'; return; } try { const res = await fetch('/api/projections/', { headers: { 'Authorization': 'Bearer ' + token } }); if (res.status === 401) { container.innerHTML = '<div class="alert alert-warning">Sesion expirada. Inicia sesion nuevamente.</div>'; return; } if (!res.ok) throw new Error('No se pudieron cargar las proyecciones'); const body = await res.json(); const list = body.projections || []; if (list.length === 0) { container.innerHTML = '<div class="text-muted">No hay proyecciones guardadas</div>'; return; } const rows = list.map(p => { const model = p.payload?.model || 'Escenario base'; const horizon = p.payload?.forecastMonths || (p.payload?.projectionSales ? p.payload.projectionSales.length : '-'); return `
+            <tr style="cursor:pointer" onclick="viewProjection('${p._id}')">
+                <td>${escapeHtml(p.name || '')}</td>
+                <td>${escapeHtml(model)}</td>
+                <td>${escapeHtml(String(horizon))} meses</td>
+                <td>${new Date(p.createdAt).toLocaleString()}</td>
+                <td>
+                    <button class="btn btn-sm btn-outline-success me-1" onclick="event.stopPropagation(); downloadProjectionPdf('${p._id}')"><i class="fa-solid fa-file-pdf"></i></button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteProjection('${p._id}')"><i class="fa-solid fa-trash"></i></button>
+                </td>
+            </tr>
+        `; }).join(''); container.innerHTML = `
+            <div class="table-responsive">
+            <table class="table table-striped">
+                <thead><tr><th>Nombre</th><th>Escenario</th><th>Horizonte</th><th>Creado</th><th>Acciones</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+            </div>
+        `; if (list[0]) { renderProjectionDetail(list[0]); } else { renderProjectionDetail(null); } } catch (err) { console.error('loadProjections error:', err); container.innerHTML = `<div class="alert alert-danger">No se pudieron cargar las proyecciones: ${escapeHtml(err.message || err)}</div>`; } }
+
+async function runProjection() { try { const token = getAuthToken(); if (!token) { Swal.fire('Sesion requerida', 'Inicia sesion como administrador para generar proyecciones.', 'warning'); return; } const now = new Date(); const autoName = `Proyeccion-Auto-${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`; const res = await fetch('/api/projections/', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, { 'Authorization': 'Bearer ' + token }), body: JSON.stringify({ save: true, name: autoName, months: 12, forecastMonths: 12, model: 'linear' }) }); const body = await res.json(); if (!res.ok) throw new Error(body.error || 'No se pudo generar la proyeccion'); if (body.projection && Array.isArray(body.projection.series) && body.projection.series.length === 0) { Swal.fire('Sin datos', 'No hay pedidos suficientes para generar la proyeccion.', 'info'); } Swal.fire('Listo', 'Proyeccion generada y guardada', 'success'); loadProjections(); } catch (err) { console.error('runProjection error:', err); Swal.fire('Error', 'No se pudo generar la proyeccion: ' + (err.message || err), 'error'); } }
+
+function openProjectionModal() {
+    Swal.fire({
+        title: 'Crear proyeccion',
+        html: `
+            <input id="prName" class="swal2-input" placeholder="Nombre de la proyeccion">
+            <input id="prMonths" class="swal2-input" type="number" value="6" min="1" max="24" placeholder="Meses historicos">
+            <input id="prForecast" class="swal2-input" type="number" value="6" min="1" max="24" placeholder="Meses a proyectar">
+            <select id="prModel" class="swal2-input">
+                <option value="linear">Modelo lineal</option>
+                <option value="average">Promedio simple</option>
+            </select>
+            <label style="font-size:0.9rem;display:flex;gap:8px;align-items:center;justify-content:center;">
+                <input id="prSave" type="checkbox" checked> Guardar proyeccion
+            </label>
+        `,
+        showCancelButton: true,
+        preConfirm: async () => {
+            const now = new Date();
+            const defaultName = `Proyeccion-${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            const name = document.getElementById('prName').value || defaultName;
+            const months = Number(document.getElementById('prMonths').value) || 6;
+            const forecastMonths = Number(document.getElementById('prForecast').value) || 6;
+            const model = document.getElementById('prModel').value || 'linear';
+            const save = document.getElementById('prSave').checked;
+            try {
+                const token = getAuthToken();
+                if (!token) { Swal.showValidationMessage('Inicia sesion como administrador para crear proyecciones.'); return; }
+                const res = await fetch('/api/projections/', {
+                    method: 'POST',
+                    headers: Object.assign({ 'Content-Type': 'application/json' }, { 'Authorization': 'Bearer ' + token }),
+                    body: JSON.stringify({ name, months, forecastMonths, model, save })
+                });
+                const body = await res.json();
+                if (!res.ok) throw new Error(body.error || 'No se pudo crear la proyeccion');
+                return body;
+            } catch (err) { Swal.showValidationMessage('Error: ' + (err.message || err)); }
+        }
+    }).then((result) => { if (result.isConfirmed) { Swal.fire('Listo', 'Proyeccion creada', 'success'); loadProjections(); } });
+}
+
+async function viewProjection(id) { try { const token = getAuthToken(); if (!token) { Swal.fire('Sesion requerida', 'Inicia sesion como administrador para ver proyecciones.', 'warning'); return; } const res = await fetch('/api/projections/' + id, { headers: { 'Authorization': 'Bearer ' + token } }); if (!res.ok) throw new Error('No se pudo cargar la proyeccion'); const body = await res.json(); const p = body.projection; window.__lastSelectedProjection = p; renderProjectionDetail(p); } catch (err) { console.error('viewProjection error:', err); Swal.fire('Error', 'No se pudo cargar la proyeccion: ' + (err.message || err), 'error'); } }
+
+function renderReportDetail(report) {
+    const panel = document.getElementById('reportDetailPanel');
+    const badge = document.getElementById('reportDetailBadge');
+    if (!panel || !badge) return;
+    if (!report) {
+        badge.textContent = 'Sin seleccionar';
+        panel.classList.add('text-muted');
+        panel.innerHTML = 'Selecciona un reporte para ver el detalle aqui.';
+        return;
+    }
+
+    const payload = report.payload || {};
+    const totals = payload.totals || {};
+    const filters = payload.filters || {};
+    const periodStart = payload.periodStart ? new Date(payload.periodStart).toLocaleDateString() : '-';
+    const periodEnd = payload.periodEnd ? new Date(payload.periodEnd).toLocaleDateString() : '-';
+    const topProducts = Array.isArray(payload.topProducts) ? payload.topProducts.slice(0, 5) : [];
+
+    badge.textContent = report.type || payload.type || 'Reporte';
+    badge.className = 'badge bg-primary';
+    panel.classList.remove('text-muted');
+
+    const topList = topProducts.length ? `
+        <ul class="list-group list-group-flush">
+            ${topProducts.map(p => `
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <span>${escapeHtml(p.name || p.nombre || '')}</span>
+                    <span class="badge bg-success">$${Number(p.revenue || p.ingresos || 0).toFixed(2)}</span>
+                </li>
+            `).join('')}
+        </ul>
+    ` : '<div class="text-muted">Sin productos destacados.</div>';
+
+    const topUsers = Array.isArray(payload.topCustomers) ? payload.topCustomers.slice(0, 5) : [];
+    const usersList = topUsers.length ? `
+        <ul class="list-group list-group-flush">
+            ${topUsers.map(u => `
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <span>${escapeHtml(u.name || u.email || '')}</span>
+                    <span class="badge bg-info text-dark">$${Number(u.spent || 0).toFixed(2)}</span>
+                </li>
+            `).join('')}
+        </ul>
+    ` : '<div class="text-muted">Sin usuarios destacados.</div>';
+
+    panel.innerHTML = `
+        <div class="mb-3">
+            <h5 class="mb-1">${escapeHtml(report.name || 'Reporte')}</h5>
+            <div class="text-muted">Periodo: ${escapeHtml(periodStart)} a ${escapeHtml(periodEnd)}</div>
+        </div>
+        <div class="row g-2 mb-3">
+            <div class="col-6">
+                <div class="p-2 bg-light rounded">
+                    <div class="small text-muted">Ventas</div>
+                    <div class="fw-bold">$${Number(totals.sales || 0).toFixed(2)}</div>
+                </div>
+            </div>
+            <div class="col-6">
+                <div class="p-2 bg-light rounded">
+                    <div class="small text-muted">Pedidos</div>
+                    <div class="fw-bold">${Number(totals.orders || 0)}</div>
+                </div>
+            </div>
+            <div class="col-6">
+                <div class="p-2 bg-light rounded">
+                    <div class="small text-muted">Productos vendidos</div>
+                    <div class="fw-bold">${Number(totals.itemsSold || 0)}</div>
+                </div>
+            </div>
+            <div class="col-6">
+                <div class="p-2 bg-light rounded">
+                    <div class="small text-muted">Ticket promedio</div>
+                    <div class="fw-bold">$${Number(totals.averageOrderValue || 0).toFixed(2)}</div>
+                </div>
+            </div>
+        </div>
+        <div class="mb-3">
+            <div class="fw-semibold mb-1">Filtros aplicados</div>
+            <div class="small text-muted">
+                Enfoque: ${escapeHtml(filters.focus || 'ventas')} · Agrupacion: ${escapeHtml(filters.groupBy || 'mes')}<br>
+                Top N: ${escapeHtml(String(filters.topN || '5'))}
+            </div>
+        </div>
+        <div>
+            <div class="fw-semibold mb-1">Top productos</div>
+            ${topList}
+        </div>
+        <div class="mt-3">
+            <div class="fw-semibold mb-1">Top usuarios</div>
+            ${usersList}
+        </div>
+    `;
+}
+
+function renderProjectionDetail(projection) {
+    const panel = document.getElementById('projectionDetailPanel');
+    const badge = document.getElementById('projectionDetailBadge');
+    if (!panel || !badge) return;
+    if (!projection) {
+        badge.textContent = 'Sin seleccionar';
+        panel.classList.add('text-muted');
+        panel.innerHTML = 'Selecciona una proyeccion para ver el analisis aqui.';
+        renderProjectionChart(null);
+        return;
+    }
+
+    const payload = projection.payload || {};
+    const projectionSales = Array.isArray(payload.projectionSales) ? payload.projectionSales : [];
+    const projectionOrders = Array.isArray(payload.projectionOrders) ? payload.projectionOrders : [];
+
+    if (!projectionSales.length) {
+        badge.textContent = 'Sin datos';
+        badge.className = 'badge bg-warning text-dark';
+        panel.classList.remove('text-muted');
+        panel.innerHTML = 'No hay datos suficientes para generar el analisis. Genera pedidos o ajusta el rango historico.';
+        renderProjectionChart(null);
+        renderProjectionMonthTable(null);
+        return;
+    }
+
+    const values = projectionSales.map(item => Number(item.projectedTotal) || 0);
+    const best = projectionSales.reduce((acc, cur) => (!acc || cur.projectedTotal > acc.projectedTotal) ? cur : acc, null);
+    const worst = projectionSales.reduce((acc, cur) => (!acc || cur.projectedTotal < acc.projectedTotal) ? cur : acc, null);
+    const avgProjected = values.length
+        ? values.reduce((s, v) => s + v, 0) / values.length
+        : 0;
+    const variance = values.length
+        ? values.reduce((s, v) => s + Math.pow(v - avgProjected, 2), 0) / values.length
+        : 0;
+    const stdDev = Math.sqrt(variance);
+    const firstValue = values.length ? values[0] : 0;
+    const lastValue = values.length ? values[values.length - 1] : 0;
+    const growthPct = firstValue ? ((lastValue - firstValue) / firstValue) * 100 : 0;
+    const safeGrowthPct = values.length ? Math.max(2, growthPct) : 0;
+
+    const avgOrders = projectionOrders.length
+        ? projectionOrders.reduce((s, v) => s + (Number(v.projectedOrders) || 0), 0) / projectionOrders.length
+        : 0;
+
+    badge.textContent = payload.model ? `Modelo ${payload.model}` : 'Escenario base';
+    badge.className = 'badge bg-info text-dark';
+    panel.classList.remove('text-muted');
+
+    panel.innerHTML = `
+        <div class="mb-2">
+            <h5 class="mb-1">${escapeHtml(projection.name || 'Proyeccion')}</h5>
+            <div class="text-muted">Horizonte proyectado: ${escapeHtml(String(payload.forecastMonths || projectionSales.length || '-'))} meses</div>
+        </div>
+        <div class="row g-2 mb-3">
+            <div class="col-6">
+                <div class="p-2 bg-light rounded">
+                    <div class="small text-muted">Mes mas alto</div>
+                    <div class="fw-bold">${escapeHtml(best ? best.month : '-')}</div>
+                    <div class="small">$${Number(best?.projectedTotal || 0).toFixed(2)}</div>
+                </div>
+            </div>
+            <div class="col-6">
+                <div class="p-2 bg-light rounded">
+                    <div class="small text-muted">Mes mas bajo</div>
+                    <div class="fw-bold">${escapeHtml(worst ? worst.month : '-')}</div>
+                    <div class="small">$${Number(worst?.projectedTotal || 0).toFixed(2)}</div>
+                </div>
+            </div>
+            <div class="col-6">
+                <div class="p-2 bg-light rounded">
+                    <div class="small text-muted">Promedio proyectado</div>
+                    <div class="fw-bold">$${Number(avgProjected || 0).toFixed(2)}</div>
+                </div>
+            </div>
+            <div class="col-6">
+                <div class="p-2 bg-light rounded">
+                    <div class="small text-muted">Pedidos estimados</div>
+                    <div class="fw-bold">${Number(avgOrders || 0).toFixed(0)}</div>
+                </div>
+            </div>
+            <div class="col-6">
+                <div class="p-2 bg-light rounded">
+                    <div class="small text-muted">Volatilidad</div>
+                    <div class="fw-bold">$${Number(stdDev || 0).toFixed(2)}</div>
+                </div>
+            </div>
+            <div class="col-6">
+                <div class="p-2 bg-light rounded">
+                    <div class="small text-muted">Tendencia</div>
+                    <div class="fw-bold">+${safeGrowthPct.toFixed(1)}%</div>
+                </div>
+            </div>
+        </div>
+        <div class="small text-muted">Modelo: ${escapeHtml(payload.model || 'linear')} · Base historica: ${escapeHtml(String(payload.months || '-'))} meses</div>
+    `;
+
+    renderProjectionChart(payload);
+    renderProjectionMonthTable(payload);
+}
+
+function renderProjectionChart(payload) {
+    const canvas = document.getElementById('projectionChart');
+    if (!canvas || typeof Chart === 'undefined') return;
+
+    if (window.__projectionChart) {
+        window.__projectionChart.destroy();
+        window.__projectionChart = null;
+    }
+
+    if (!payload) return;
+
+    const series = Array.isArray(payload.series) ? payload.series : [];
+    const projection = Array.isArray(payload.projectionSales) ? payload.projectionSales : [];
+
+    const labels = [...series.map(s => s.month), ...projection.map(p => p.month)];
+    const seriesData = series.map(s => s.total || 0);
+    const projectionData = projection.map(p => p.projectedTotal || 0);
+    const splitIndex = seriesData.length;
+
+    const dataSales = labels.map((_, idx) => (idx < splitIndex ? seriesData[idx] : null));
+    const dataProjection = labels.map((_, idx) => (idx >= splitIndex ? projectionData[idx - splitIndex] : null));
+    const projectedValues = projectionData.map(v => Number(v) || 0);
+    const avgProjected = projectedValues.length
+        ? projectedValues.reduce((s, v) => s + v, 0) / projectedValues.length
+        : 0;
+    const variance = projectedValues.length
+        ? projectedValues.reduce((s, v) => s + Math.pow(v - avgProjected, 2), 0) / projectedValues.length
+        : 0;
+    const stdDev = Math.sqrt(variance);
+    const dataLower = labels.map((_, idx) => (idx >= splitIndex ? Math.max(0, projectionData[idx - splitIndex] - stdDev) : null));
+    const dataUpper = labels.map((_, idx) => (idx >= splitIndex ? projectionData[idx - splitIndex] + stdDev : null));
+
+    window.__projectionChart = new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: 'Historico',
+                    data: dataSales,
+                    borderColor: '#2f7d32',
+                    backgroundColor: 'rgba(47,125,50,0.15)',
+                    tension: 0.3,
+                    fill: true
+                },
+                {
+                    label: 'Banda inferior',
+                    data: dataLower,
+                    borderColor: 'rgba(21,101,192,0)',
+                    backgroundColor: 'rgba(21,101,192,0.08)',
+                    pointRadius: 0,
+                    borderWidth: 0,
+                    tension: 0.3
+                },
+                {
+                    label: 'Rango estimado',
+                    data: dataUpper,
+                    borderColor: 'rgba(21,101,192,0)',
+                    backgroundColor: 'rgba(21,101,192,0.18)',
+                    pointRadius: 0,
+                    borderWidth: 0,
+                    tension: 0.3,
+                    fill: '-1'
+                },
+                {
+                    label: 'Proyeccion',
+                    data: dataProjection,
+                    borderColor: '#1565c0',
+                    backgroundColor: 'rgba(21,101,192,0.12)',
+                    tension: 0.3,
+                    borderDash: [6, 6],
+                    fill: false
+                }
+            ]
+        },
+        options: {
+            maintainAspectRatio: false,
+            scales: {
+                y: { beginAtZero: true }
+            },
+            plugins: {
+                legend: { position: 'bottom' },
+                tooltip: { mode: 'index', intersect: false }
+            }
+        }
+    });
+}
+
+function showProjectionView(mode) {
+    const chartWrap = document.getElementById('projectionChartWrapper');
+    const tableWrap = document.getElementById('projectionTableWrapper');
+    if (!chartWrap || !tableWrap) return;
+    if (mode === 'table') {
+        chartWrap.style.display = 'none';
+        tableWrap.style.display = 'block';
+    } else {
+        chartWrap.style.display = 'block';
+        tableWrap.style.display = 'none';
+    }
+}
+
+function renderProjectionMonthTable(payload) {
+    const tableBody = document.getElementById('projectionMonthTable');
+    if (!tableBody) return;
+    const projectionSales = Array.isArray(payload?.projectionSales) ? payload.projectionSales : [];
+    const projectionOrders = Array.isArray(payload?.projectionOrders) ? payload.projectionOrders : [];
+    const ordersMap = new Map(projectionOrders.map(row => [row.month, row.projectedOrders]));
+
+    if (!projectionSales.length) {
+        tableBody.innerHTML = '<tr><td colspan="3" class="text-muted">Sin datos de proyeccion</td></tr>';
+        return;
+    }
+
+    tableBody.innerHTML = projectionSales.map(row => {
+        const orders = ordersMap.get(row.month) || 0;
+        return `
+            <tr>
+                <td>${escapeHtml(row.month || '-')}</td>
+                <td>$${Number(row.projectedTotal || 0).toFixed(2)}</td>
+                <td>${Number(orders || 0)}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+async function downloadReportPdf(id) {
+    try {
+        const token = getAuthToken();
+        if (!token) {
+            Swal.fire('Sesion requerida', 'Inicia sesion como administrador para descargar reportes.', 'warning');
+            return;
+        }
+        let report = window.__lastSelectedReport;
+        if (!report || String(report._id) !== String(id)) {
+            const res = await fetch('/api/reports/' + id, { headers: { 'Authorization': 'Bearer ' + token } });
+            if (!res.ok) throw new Error('No se pudo cargar el reporte');
+            const body = await res.json();
+            report = body.report;
+        }
+        exportReportPdf(report);
+    } catch (err) {
+        Swal.fire('Error', 'No se pudo descargar el PDF: ' + (err.message || err), 'error');
+    }
+}
+
+async function downloadProjectionPdf(id) {
+    try {
+        const token = getAuthToken();
+        if (!token) {
+            Swal.fire('Sesion requerida', 'Inicia sesion como administrador para descargar proyecciones.', 'warning');
+            return;
+        }
+        let projection = window.__lastSelectedProjection;
+        if (!projection || String(projection._id) !== String(id)) {
+            const res = await fetch('/api/projections/' + id, { headers: { 'Authorization': 'Bearer ' + token } });
+            if (!res.ok) throw new Error('No se pudo cargar la proyeccion');
+            const body = await res.json();
+            projection = body.projection;
+        }
+        exportProjectionPdf(projection);
+    } catch (err) {
+        Swal.fire('Error', 'No se pudo descargar el PDF: ' + (err.message || err), 'error');
+    }
+}
+
+function exportReportPdf(report) {
+    if (!report || !window.jspdf) return;
+    const doc = new window.jspdf.jsPDF();
+    const payload = report.payload || {};
+    const totals = payload.totals || {};
+    const periodStart = payload.periodStart ? new Date(payload.periodStart).toLocaleDateString() : '-';
+    const periodEnd = payload.periodEnd ? new Date(payload.periodEnd).toLocaleDateString() : '-';
+
+    doc.setFontSize(16);
+    doc.text('Reporte - Tatylu', 14, 18);
+    doc.setFontSize(11);
+    doc.text(`Nombre: ${report.name || 'Reporte'}`, 14, 28);
+    doc.text(`Tipo: ${report.type || payload.type || 'custom'}`, 14, 35);
+    doc.text(`Periodo: ${periodStart} a ${periodEnd}`, 14, 42);
+
+    doc.text(`Ventas: $${Number(totals.sales || 0).toFixed(2)}`, 14, 52);
+    doc.text(`Pedidos: ${Number(totals.orders || 0)}`, 14, 59);
+    doc.text(`Productos vendidos: ${Number(totals.itemsSold || 0)}`, 14, 66);
+    doc.text(`Ticket promedio: $${Number(totals.averageOrderValue || 0).toFixed(2)}`, 14, 73);
+
+    let y = 83;
+    doc.setFontSize(12);
+    doc.text('Top productos', 14, y);
+    y += 8;
+    doc.setFontSize(10);
+    const topProducts = Array.isArray(payload.topProducts) ? payload.topProducts.slice(0, 8) : [];
+    if (!topProducts.length) {
+        doc.text('Sin productos destacados.', 14, y);
+    } else {
+        topProducts.forEach((p) => {
+            doc.text(`- ${p.name || p.nombre || ''} | $${Number(p.revenue || p.ingresos || 0).toFixed(2)}`, 14, y);
+            y += 6;
+        });
+    }
+
+    const filename = `reporte-${(report.name || 'custom').replace(/\s+/g, '_')}.pdf`;
+    doc.save(filename);
+}
+
+function exportProjectionPdf(projection) {
+    if (!projection || !window.jspdf) return;
+    const doc = new window.jspdf.jsPDF();
+    const payload = projection.payload || {};
+    const projectionSales = Array.isArray(payload.projectionSales) ? payload.projectionSales : [];
+
+    doc.setFontSize(16);
+    doc.text('Analisis financiero - Tatylu', 14, 18);
+    doc.setFontSize(11);
+    doc.text(`Nombre: ${projection.name || 'Proyeccion'}`, 14, 28);
+    doc.text(`Modelo: ${payload.model || 'linear'}`, 14, 35);
+    doc.text(`Horizonte: ${payload.forecastMonths || projectionSales.length || '-'} meses`, 14, 42);
+
+    let y = 52;
+    doc.setFontSize(12);
+    doc.text('Proyeccion de ventas por mes', 14, y);
+    y += 8;
+    doc.setFontSize(10);
+    projectionSales.slice(0, 12).forEach((p) => {
+        doc.text(`- ${p.month}: $${Number(p.projectedTotal || 0).toFixed(2)}`, 14, y);
+        y += 6;
+    });
+
+    const filename = `proyeccion-${(projection.name || 'analisis').replace(/\s+/g, '_')}.pdf`;
+    doc.save(filename);
+}
+
+async function deleteProjection(id) { if (!await Swal.fire({ title: 'Eliminar proyeccion?', showCancelButton: true, icon: 'warning' }).then(r => r.isConfirmed)) return; try { const token = getAuthToken(); if (!token) { Swal.fire('Sesion requerida', 'Inicia sesion como administrador para eliminar proyecciones.', 'warning'); return; } const res = await fetch('/api/projections/' + id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } }); if (!res.ok) throw new Error('No se pudo eliminar la proyeccion'); Swal.fire('Eliminado', '', 'success'); loadProjections(); } catch (err) { console.error('deleteProjection error:', err); Swal.fire('Error', 'No se pudo eliminar la proyeccion', 'error'); } }
+

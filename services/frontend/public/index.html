@@ -201,7 +201,14 @@
     <script>
       // Set API base to your backend CRUD URL (no trailing slash). Update when deploying.
       // E.g. window.__API_BASE__ = 'https://market-tatylu-backend-crud.onrender.com';
-      window.__API_BASE__ = window.__API_BASE__ || 'https://market-tatylu-backend-crud.onrender.com';
+      // Do not override when running locally (use same-origin /api via nginx proxy).
+      (function() {
+        const host = (window.location && window.location.hostname) ? window.location.hostname : '';
+        const isLocal = host === 'localhost' || host === '127.0.0.1';
+        if (!isLocal) {
+          window.__API_BASE__ = window.__API_BASE__ || 'https://market-tatylu-backend-crud.onrender.com';
+        }
+      })();
     </script>
     <script src="./static/js/apiClient.js"></script>
     <script src="./static/js/productManager.js"></script>
